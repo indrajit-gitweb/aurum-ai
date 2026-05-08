@@ -5,6 +5,7 @@ import HomePage from '@/pages/HomePage'
 import AnalyserPage from '@/pages/AnalyserPage'
 import LiveAnalysisPage from '@/pages/LiveAnalysisPage'
 import ResultsPage from '@/pages/ResultsPage'
+import HistoryPage from '@/pages/HistoryPage'
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
         <Route path="/analyser" element={<AnalyserPage />} />
         <Route path="/analyze/live/:sessionId" element={<LiveAnalysisPage />} />
         <Route path="/results/:sessionId" element={<ResultsPage />} />
+        <Route path="/history" element={<HistoryPage />} />
       </Routes>
     </BrowserRouter>
   )

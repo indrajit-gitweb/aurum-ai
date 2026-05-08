@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { CheckCircle, Loader, TrendingUp, TrendingDown, Minus, Download, RefreshCw, AlertCircle, ChevronsDown } from 'lucide-react'
+import { CheckCircle, Loader, TrendingUp, TrendingDown, Minus, Download, RefreshCw, AlertCircle, ChevronsDown, Square } from 'lucide-react'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { PERSONAS, VERDICT_CONFIG } from '@/lib/constants'
 import type { WSEvent, FinalResult } from '@/hooks/useWebSocket'
@@ -9,10 +9,31 @@ import type { WSEvent, FinalResult } from '@/hooks/useWebSocket'
 // ─── Agent Status ──────────────────────────────────────────────────────────────
 type AgentStatus = 'pending' | 'running' | 'complete'
 
-// Fun labels for personas not selected for this analysis
-const NOT_SELECTED_LABELS = [
-  'On Holiday ✈', 'Off Duty', 'On Leave', 'Not in Session', 'Benched', 'Away'
-] as const
+// Consistent label for unselected personas
+const NOT_SELECTED_LABEL = 'On Leave'
+
+// ─── Pipeline Step Tracking ────────────────────────────────────────────────────
+type PipelineStatus = 'pending' | 'running' | 'complete'
+
+interface PipelineStep {
+  id: string
+  label: string
+  status: PipelineStatus
+}
+
+const PIPELINE_STEP_DEFS: readonly { id: string; label: string }[] = [
+  { id: 'data_fetcher',         label: 'Price Data'   },
+  { id: 'fundamentals_analyst', label: 'Fundamentals' },
+  { id: 'technical_analyst',    label: 'Technicals'   },
+  { id: 'news_analyst',         label: 'News'         },
+  { id: 'macro_analyst',        label: 'Macro'        },
+  { id: 'debate_bull',          label: 'Bull Case'    },
+  { id: 'debate_bear',          label: 'Bear Case'    },
+  { id: 'research_manager',     label: 'Research'     },
+  { id: 'portfolio_manager',    label: 'Verdict'      },
+]
+
+const PIPELINE_AGENT_IDS = new Set(PIPELINE_STEP_DEFS.map((s) => s.id))
 
 interface AgentState {
   id: string
@@ -291,6 +312,53 @@ function ThoughtStream({ lines, isConnected }: { lines: ThoughtLine[]; isConnect
   )
 }
 
+// ─── Pipeline Steps Bar ────────────────────────────────────────────────────────
+function PipelineStepsBar({ steps }: { steps: PipelineStep[] }) {
+  return (
+    <div
+      className="flex flex-wrap gap-1.5 px-5 py-3 mb-0"
+      style={{ background: '#0a0a0a', borderBottom: '1px solid rgba(201,168,76,0.08)' }}
+    >
+      {steps.map((step) => {
+        const isDone    = step.status === 'complete'
+        const isRunning = step.status === 'running'
+        return (
+          <div
+            key={step.id}
+            className="flex items-center gap-1 px-2 py-0.5 font-raleway text-xs"
+            style={{
+              border: isDone
+                ? '1px solid rgba(34,197,94,0.35)'
+                : isRunning
+                ? '1px solid rgba(201,168,76,0.5)'
+                : '1px solid rgba(255,255,255,0.06)',
+              background: isDone
+                ? 'rgba(34,197,94,0.06)'
+                : isRunning
+                ? 'rgba(201,168,76,0.08)'
+                : 'transparent',
+              color: isDone ? '#22c55e' : isRunning ? '#C9A84C' : 'rgba(255,255,255,0.2)',
+            }}
+          >
+            {isRunning && (
+              <motion.span
+                animate={{ opacity: [1, 0.3, 1] }}
+                transition={{ duration: 1, repeat: Infinity }}
+                style={{ display: 'inline-block', width: 5, height: 5, borderRadius: '50%', background: '#C9A84C', flexShrink: 0 }}
+              />
+            )}
+            {isDone && <span style={{ fontSize: 9 }}>✓</span>}
+            {step.status === 'pending' && (
+              <span style={{ display: 'inline-block', width: 5, height: 5, borderRadius: '50%', background: 'rgba(255,255,255,0.1)', flexShrink: 0 }} />
+            )}
+            <span>{step.label}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── Debate Section ────────────────────────────────────────────────────────────
 function DebateSection({ bullLines, bearLines }: { bullLines: string[]; bearLines: string[] }) {
   if (bullLines.length === 0 && bearLines.length === 0) return null
@@ -382,7 +450,7 @@ function ConfidenceArc({ confidence }: { confidence: number }) {
 }
 
 // ─── Final Result Banner ───────────────────────────────────────────────────────
-function FinalResultBanner({ result, ticker }: { result: FinalResult; ticker: string }) {
+function FinalResultBanner({ result, ticker, onExportPDF }: { result: FinalResult; ticker: string; onExportPDF: () => void }) {
   // Normalise verdict — backend can send "STRONG BUY", "BUY", "HOLD", "SELL", "STRONG SELL"
   const verdictKey = result.verdict?.toUpperCase() as keyof typeof VERDICT_CONFIG
   const config = VERDICT_CONFIG[verdictKey] || VERDICT_CONFIG['HOLD']
@@ -505,7 +573,8 @@ function FinalResultBanner({ result, ticker }: { result: FinalResult; ticker: st
 
           <div className="flex items-center gap-4 shrink-0">
             <button
-              className="flex items-center gap-2 font-raleway text-sm tracking-widest uppercase px-6 py-3 transition-all duration-300"
+              onClick={onExportPDF}
+              className="flex items-center gap-2 font-raleway text-sm tracking-widest uppercase px-6 py-3 transition-all duration-300 hover:bg-gold/10"
               style={{ border: '1px solid rgba(201,168,76,0.3)', color: '#C9A84C' }}
               data-hover
             >
@@ -531,7 +600,7 @@ function FinalResultBanner({ result, ticker }: { result: FinalResult; ticker: st
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 export default function LiveAnalysisPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
-  const { events, isConnected, isComplete, finalResult, error: wsError } = useWebSocket(sessionId || null)
+  const { events, isConnected, isComplete, finalResult, error: wsError, stop } = useWebSocket(sessionId || null)
 
   // ── Read which personas were selected (stored by AnalyserPage) ────────────
   const [selectedPersonaIds] = useState<Set<string>>(() => {
@@ -558,7 +627,7 @@ export default function LiveAnalysisPage() {
         initials: p.initials,
         status: 'pending' as AgentStatus,
         isSelected,
-        notSelectedLabel: NOT_SELECTED_LABELS[i % NOT_SELECTED_LABELS.length],
+        notSelectedLabel: NOT_SELECTED_LABEL,
       }
     })
   )
@@ -570,6 +639,11 @@ export default function LiveAnalysisPage() {
   const lineCounter = useRef(0)
   // BUG-17 fix: track last-processed event index so batched arrivals aren't dropped
   const lastProcessedIdx = useRef(-1)
+
+  // Pipeline step progress (non-persona agents: data fetchers, debate, PM)
+  const [pipelineSteps, setPipelineSteps] = useState<PipelineStep[]>(() =>
+    PIPELINE_STEP_DEFS.map((s) => ({ ...s, status: 'pending' as PipelineStatus }))
+  )
 
   // Read ticker from sessionStorage (stored by AnalyserPage before navigating)
   const [ticker] = useState<string>(() => {
@@ -607,25 +681,45 @@ export default function LiveAnalysisPage() {
       switch (ev.type) {
         case 'agent_start':
           if (agentId) {
-            setAgents((prev) => prev.map((a) => a.id === agentId ? { ...a, status: 'running' } : a))
+            if (PIPELINE_AGENT_IDS.has(agentId)) {
+              // Pipeline step → update pipeline bar
+              setPipelineSteps((prev) =>
+                prev.map((s) => s.id === agentId ? { ...s, status: 'running' } : s)
+              )
+            } else {
+              // Persona agent → update timeline
+              setAgents((prev) => prev.map((a) => a.id === agentId ? { ...a, status: 'running' } : a))
+            }
+          }
+          break
+
+        case 'agent_progress':
+          if (agentId && PIPELINE_AGENT_IDS.has(agentId)) {
+            // Keep pipeline step as running (progress event, not complete yet)
           }
           break
 
         case 'agent_complete':
           if (agentId) {
-            setAgents((prev) =>
-              prev.map((a) =>
-                a.id === agentId
-                  ? {
-                      ...a,
-                      status: 'complete',
-                      signal: normalizeSignal(ev.signal),
-                      summary: ev.reasoning || ev.summary || agentText,
-                    }
-                  : a
+            if (PIPELINE_AGENT_IDS.has(agentId)) {
+              setPipelineSteps((prev) =>
+                prev.map((s) => s.id === agentId ? { ...s, status: 'complete' } : s)
               )
-            )
-            timelineBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+            } else {
+              setAgents((prev) =>
+                prev.map((a) =>
+                  a.id === agentId
+                    ? {
+                        ...a,
+                        status: 'complete',
+                        signal: normalizeSignal(ev.signal),
+                        summary: ev.reasoning || ev.summary || agentText,
+                      }
+                    : a
+                )
+              )
+              timelineBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+            }
           }
           break
 
@@ -648,6 +742,74 @@ export default function LiveAnalysisPage() {
 
   const completedCount = agents.filter((a) => a.status === 'complete').length
 
+  // ── Auto-save to localStorage when analysis completes ────────────────────────
+  useEffect(() => {
+    if (!isComplete || !finalResult || !ticker) return
+    try {
+      const entry = {
+        id: sessionId || String(Date.now()),
+        ticker,
+        verdict:       finalResult.verdict,
+        confidence:    finalResult.confidence,
+        target_price:  finalResult.target_price ?? null,
+        summary:       finalResult.summary,
+        bull_case:     finalResult.bull_case,
+        bear_case:     finalResult.bear_case,
+        risk_assessment: finalResult.risk_assessment,
+        personas:      Array.from(selectedPersonaIds),
+        timestamp:     Date.now(),
+      }
+      const existing = JSON.parse(localStorage.getItem('aurum_history') || '[]') as object[]
+      const updated = [entry, ...existing].slice(0, 100)
+      localStorage.setItem('aurum_history', JSON.stringify(updated))
+    } catch { /* localStorage may be full or disabled */ }
+  }, [isComplete]) // eslint-disable-line
+
+  // ── PDF Export ────────────────────────────────────────────────────────────────
+  const handleExportPDF = useCallback(() => {
+    if (!finalResult || !ticker) return
+    const signals = (finalResult.persona_signals || [])
+      .map((s) => `<tr><td style="padding:4px 8px;border-bottom:1px solid #222;">${s.agent}</td><td style="padding:4px 8px;border-bottom:1px solid #222;color:${s.signal === 'bullish' ? '#22c55e' : s.signal === 'bearish' ? '#ef4444' : '#aaa'}">${s.signal.toUpperCase()}</td><td style="padding:4px 8px;border-bottom:1px solid #222;">${s.confidence}%</td></tr>`)
+      .join('')
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>AURUM AI — ${ticker} Analysis</title>
+<style>
+  body{font-family:'Georgia',serif;background:#0a0a0a;color:#e5e5e5;margin:0;padding:32px;max-width:900px;margin:0 auto;}
+  h1{font-family:'Palatino Linotype',serif;color:#C9A84C;font-size:2.5rem;letter-spacing:.15em;margin-bottom:4px;}
+  h2{font-family:'Palatino Linotype',serif;color:#C9A84C;font-size:1.1rem;letter-spacing:.1em;border-bottom:1px solid #333;padding-bottom:8px;margin-top:28px;}
+  .meta{color:#888;font-size:.8rem;letter-spacing:.1em;text-transform:uppercase;margin-bottom:24px;}
+  .verdict{font-size:4rem;font-family:'Palatino Linotype',serif;font-weight:bold;color:${finalResult.verdict.includes('BUY') ? '#C9A84C' : finalResult.verdict.includes('SELL') ? '#ef4444' : '#aaa'};margin:24px 0 8px;}
+  .conf{color:#888;font-size:.9rem;}
+  .box{background:#111;border:1px solid #222;padding:16px 20px;margin-bottom:16px;}
+  table{width:100%;border-collapse:collapse;font-size:.85rem;}
+  th{text-align:left;padding:6px 8px;color:#C9A84C;font-size:.75rem;letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid #333;}
+  .footer{margin-top:48px;padding-top:16px;border-top:1px solid #222;color:#555;font-size:.75rem;}
+  @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+</style></head><body>
+<h1>AURUM AI</h1>
+<p class="meta">Stock Analysis Report &nbsp;·&nbsp; ${ticker} &nbsp;·&nbsp; ${new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}</p>
+<div class="verdict">${finalResult.verdict}</div>
+${finalResult.target_price ? `<p class="conf">Target Price: <strong style="color:#C9A84C">$${finalResult.target_price.toFixed(2)}</strong> &nbsp;·&nbsp; Confidence: ${finalResult.confidence}%</p>` : `<p class="conf">Confidence: ${finalResult.confidence}%</p>`}
+<h2>Executive Summary</h2>
+<div class="box"><p style="line-height:1.6;margin:0;">${finalResult.summary}</p></div>
+<h2>Bull Case</h2>
+<div class="box"><p style="line-height:1.6;margin:0;color:#22c55e">${finalResult.bull_case?.replace(/\n/g,'<br>')}</p></div>
+<h2>Bear Case</h2>
+<div class="box"><p style="line-height:1.6;margin:0;color:#ef4444">${finalResult.bear_case?.replace(/\n/g,'<br>')}</p></div>
+<h2>Risk Assessment</h2>
+<div class="box"><p style="line-height:1.6;margin:0;">${finalResult.risk_assessment}</p></div>
+<h2>Analyst Signals</h2>
+<table><thead><tr><th>Analyst</th><th>Signal</th><th>Confidence</th></tr></thead><tbody>${signals}</tbody></table>
+<p class="footer">Generated by AURUM AI · Not financial advice · For educational purposes only</p>
+</body></html>`
+
+    const win = window.open('', '_blank')
+    if (!win) return
+    win.document.write(html)
+    win.document.close()
+    win.focus()
+    setTimeout(() => { win.print() }, 400)
+  }, [finalResult, ticker])
+
   return (
     <div className="min-h-screen pt-20 pb-16" style={{ background: '#0a0a0a' }}>
       <div className="max-w-7xl mx-auto px-6">
@@ -664,7 +826,7 @@ export default function LiveAnalysisPage() {
             </div>
 
             <div className="flex items-center gap-4">
-              {!isComplete && (
+              {!isComplete && isConnected && (
                 <div className="flex items-center gap-3">
                   <motion.div
                     animate={{ rotate: 360 }}
@@ -682,6 +844,17 @@ export default function LiveAnalysisPage() {
                     </p>
                   </div>
                 </div>
+              )}
+              {!isComplete && isConnected && (
+                <button
+                  onClick={stop}
+                  className="flex items-center gap-1.5 font-raleway text-xs tracking-widest uppercase px-4 py-2 transition-all duration-200 hover:bg-red-900/30"
+                  style={{ border: '1px solid rgba(239,68,68,0.4)', color: 'rgba(239,68,68,0.8)' }}
+                  title="Stop analysis"
+                >
+                  <Square size={11} />
+                  Stop
+                </button>
               )}
               {isComplete && (
                 <div className="flex items-center gap-2">
@@ -720,6 +893,8 @@ export default function LiveAnalysisPage() {
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start" style={{ height: '70vh' }}>
           {/* Left — Agent Timeline (scrollable) */}
           <div className="lg:col-span-2 overflow-y-auto" style={{ height: '70vh', background: '#0d0d0d', border: '1px solid rgba(201,168,76,0.1)' }}>
+            {/* Pipeline step chips — always visible at top */}
+            <PipelineStepsBar steps={pipelineSteps} />
             <div className="p-5">
               <p className="font-cinzel text-xs font-semibold tracking-widest uppercase mb-6" style={{ color: 'rgba(201,168,76,0.6)' }}>
                 Analyst Progress
@@ -747,7 +922,7 @@ export default function LiveAnalysisPage() {
         {/* Final Result */}
         <AnimatePresence>
           {isComplete && finalResult && (
-            <FinalResultBanner result={finalResult} ticker={ticker} />
+            <FinalResultBanner result={finalResult} ticker={ticker} onExportPDF={handleExportPDF} />
           )}
         </AnimatePresence>
 

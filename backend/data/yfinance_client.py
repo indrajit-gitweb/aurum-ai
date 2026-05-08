@@ -188,6 +188,27 @@ class YFinanceClient:
                     if fcf_v and mcap and mcap != 0 else None
                 ),
             }
+            # ── ROIC computation ──────────────────────────────────────────────
+            # NOPAT ≈ EBITDA * (1 - 0.25) as a rough proxy for operating income
+            # after a blended 25% tax rate.
+            # Invested Capital = total_debt + book_equity - cash
+            try:
+                ebitda_r = info.get("ebitda")
+                total_debt_r = info.get("totalDebt") or 0
+                book_value_r = info.get("bookValue") or 0
+                shares_r = info.get("sharesOutstanding") or 0
+                total_cash_r = info.get("totalCash") or 0
+                nopat = ebitda_r * 0.75 if ebitda_r else None
+                book_equity = book_value_r * shares_r
+                invested_capital = total_debt_r + book_equity - total_cash_r
+                if nopat is not None and invested_capital > 0:
+                    result["roic"] = round(nopat / invested_capital, 4)
+                else:
+                    result["roic"] = None
+            except Exception:
+                result["roic"] = None
+            # Spread vs WACC — computed downstream when WACC is available
+            result["roic_wacc_spread"] = None
             return result
         except Exception as exc:
             logger.warning("[%s] get_fundamentals failed: %s", self.ticker, exc)

@@ -428,7 +428,93 @@ function FreePromiseSection() {
   )
 }
 
-// ─── Section 6: Footer ──────────────────────────────────────────────────────────
+// ─── Section 6: About ───────────────────────────────────────────────────────────
+function AboutSection() {
+  const ref = useRef<HTMLDivElement>(null)
+  const inView = useInView(ref, { once: true, margin: '-80px' })
+
+  return (
+    <section
+      id="about"
+      className="relative py-32 px-6"
+      style={{ background: '#080808', borderTop: '1px solid rgba(201,168,76,0.08)' }}
+    >
+      <div className="max-w-5xl mx-auto" ref={ref}>
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={inView ? { opacity: 1, y: 0 } : {}}
+          transition={{ duration: 0.7 }}
+          className="text-center mb-16"
+        >
+          <p className="font-raleway text-xs tracking-[0.4em] uppercase mb-4" style={{ color: '#C9A84C' }}>
+            About
+          </p>
+          <h2 className="font-cinzel font-bold text-white" style={{ fontSize: 'clamp(2rem, 4vw, 3.5rem)' }}>
+            What is AURUM AI?
+          </h2>
+          <GoldDivider className="max-w-xs mx-auto mt-6" delay={0.2} />
+        </motion.div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-start">
+          <motion.div
+            initial={{ opacity: 0, x: -30 }}
+            animate={inView ? { opacity: 1, x: 0 } : {}}
+            transition={{ duration: 0.7, delay: 0.15 }}
+          >
+            <p className="font-cormorant text-xl font-light leading-relaxed mb-6" style={{ color: 'rgba(255,255,255,0.7)' }}>
+              AURUM AI brings the analytical firepower of Wall Street's greatest investors to anyone
+              with a ticker symbol and an internet connection.
+            </p>
+            <p className="font-raleway text-sm leading-relaxed mb-5" style={{ color: 'rgba(255,255,255,0.5)' }}>
+              Each analysis runs 15 distinct AI personas — modelled on legendary investors like Warren Buffett,
+              Nassim Taleb, Aswath Damodaran and Stanley Druckenmiller — who argue, debate, and reach a
+              consensus verdict in real time.
+            </p>
+            <p className="font-raleway text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.5)' }}>
+              The platform is entirely free, open-source, and runs on a multi-LLM fallback engine
+              (Groq → Cerebras → SambaNova → Gemini → OpenRouter) so it stays online even when
+              individual providers hit rate limits.
+            </p>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, x: 30 }}
+            animate={inView ? { opacity: 1, x: 0 } : {}}
+            transition={{ duration: 0.7, delay: 0.25 }}
+            className="space-y-4"
+          >
+            {[
+              { label: 'Built on', value: 'FastAPI + React 18 + LangGraph-style pipeline' },
+              { label: 'Data sources', value: 'Yahoo Finance · FRED · SEC EDGAR' },
+              { label: 'LLM providers', value: 'Groq · Cerebras · SambaNova · Gemini · OpenRouter' },
+              { label: 'Personas', value: '15 legendary investor archetypes' },
+              { label: 'Cost', value: 'Free forever — BYOK for unlimited runs' },
+              { label: 'Open source', value: 'MIT License · GitHub' },
+            ].map((item, i) => (
+              <motion.div
+                key={item.label}
+                initial={{ opacity: 0, y: 10 }}
+                animate={inView ? { opacity: 1, y: 0 } : {}}
+                transition={{ duration: 0.4, delay: 0.3 + i * 0.08 }}
+                className="flex items-start gap-4 py-3"
+                style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
+              >
+                <span className="font-raleway text-xs tracking-widest uppercase shrink-0 pt-0.5 w-28" style={{ color: 'rgba(201,168,76,0.6)' }}>
+                  {item.label}
+                </span>
+                <span className="font-raleway text-sm" style={{ color: 'rgba(255,255,255,0.6)' }}>
+                  {item.value}
+                </span>
+              </motion.div>
+            ))}
+          </motion.div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+// ─── Section 7: Footer ──────────────────────────────────────────────────────────
 function Footer() {
   return (
     <footer
@@ -480,6 +566,7 @@ export default function HomePage() {
       <HowItWorksSection />
       <FeaturesSection />
       <FreePromiseSection />
+      <AboutSection />
       <Footer />
     </div>
   )

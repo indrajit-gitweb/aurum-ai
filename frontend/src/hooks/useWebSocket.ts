@@ -56,6 +56,7 @@ interface UseWebSocketReturn {
   isComplete: boolean
   finalResult: FinalResult | null
   error: string | null
+  stop: () => void
 }
 
 export function useWebSocket(sessionId: string | null): UseWebSocketReturn {
@@ -71,6 +72,19 @@ export function useWebSocket(sessionId: string | null): UseWebSocketReturn {
   const sessionLostRef = useRef(false)
   // BUG-15 fix: track isComplete via ref to avoid stale closure inside onclose
   const isCompleteRef = useRef(false)
+
+  const stop = useCallback(() => {
+    sessionLostRef.current = true   // prevent any reconnect
+    if (reconnectRef.current) {
+      clearTimeout(reconnectRef.current)
+      reconnectRef.current = null
+    }
+    if (wsRef.current) {
+      wsRef.current.close()
+      wsRef.current = null
+    }
+    setIsConnected(false)
+  }, [])
 
   const connect = useCallback(() => {
     if (!sessionId) return
@@ -152,5 +166,5 @@ export function useWebSocket(sessionId: string | null): UseWebSocketReturn {
     }
   }, [sessionId]) // only re-run when sessionId changes, not on connect reference change
 
-  return { events, isConnected, isComplete, finalResult, error }
+  return { events, isConnected, isComplete, finalResult, error, stop }
 }

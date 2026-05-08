@@ -14,6 +14,7 @@ Users who supply their own API key bypass the limit.
 import asyncio
 import logging
 import os
+import time
 import uuid
 from typing import Optional
 
@@ -58,6 +59,40 @@ SESSION_FREE_LIMIT = int(os.getenv("SESSION_FREE_LIMIT", "3"))
 
 # Pending analyses waiting for their WebSocket connection
 _pending_analyses: dict[str, "AnalysisRequest"] = {}
+
+_SESSION_TTL_SECONDS = 3600  # 1 hour
+
+
+async def _cleanup_stale_sessions() -> None:
+    """Background task: remove sessions and pending analyses older than TTL."""
+    while True:
+        await asyncio.sleep(300)  # run every 5 minutes
+        now = time.time()
+        # Clean pending analyses (stale if WebSocket never connected)
+        stale_pending = [
+            sid for sid, req in list(_pending_analyses.items())
+            if hasattr(req, '_created_at') and now - req._created_at > 300
+        ]
+        for sid in stale_pending:
+            _pending_analyses.pop(sid, None)
+        # Clean sessions older than TTL
+        stale_sessions = [
+            sid for sid, data in list(sessions.items())
+            if now - data.get('created_at', now) > _SESSION_TTL_SECONDS
+        ]
+        for sid in stale_sessions:
+            sessions.pop(sid, None)
+        if stale_sessions or stale_pending:
+            logger.info(
+                "Cleaned %d stale sessions, %d pending analyses.",
+                len(stale_sessions),
+                len(stale_pending),
+            )
+
+
+@app.on_event("startup")
+async def startup_event() -> None:
+    asyncio.create_task(_cleanup_stale_sessions())
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -178,7 +213,7 @@ async def start_analysis(request: AnalysisRequest) -> AnalysisStartResponse:
     session_id = request.session_id or str(uuid.uuid4())
 
     if session_id not in sessions:
-        sessions[session_id] = {"usage": 0}
+        sessions[session_id] = {"usage": 0, "created_at": time.time()}
 
     session = sessions[session_id]
     has_key = _has_user_key(request)

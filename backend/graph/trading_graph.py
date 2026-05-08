@@ -323,9 +323,11 @@ async def _node_data_fetch(state: AurumState, on_event: Callable) -> None:
     state["price_history"] = df
     await on_event(
         {
-            "type": "agent_progress",
+            "type": "agent_complete",
             "agent": "data_fetcher",
-            "message": f"Retrieved {len(df)} trading days of price data.",
+            "signal": "neutral",
+            "confidence": 100,
+            "reasoning": f"Retrieved {len(df)} trading days of price data.",
         }
     )
 
@@ -355,11 +357,11 @@ async def _node_fundamentals(state: AurumState, on_event: Callable) -> None:
     # SEC EDGAR facts — also in thread pool
     try:
         sec = SECEdgarClient(state["ticker"])
-        sec_facts, sec_filings = await asyncio.gather(
-            asyncio.to_thread(sec.get_company_facts),
-            asyncio.to_thread(
-                functools.partial(sec.get_recent_filings, form_type="10-K", limit=3)
-            ),
+        # Sequential with a small delay to respect SEC EDGAR's rate limits
+        sec_facts = await asyncio.to_thread(sec.get_company_facts)
+        await asyncio.sleep(0.6)
+        sec_filings = await asyncio.to_thread(
+            functools.partial(sec.get_recent_filings, form_type="10-K", limit=3)
         )
         state["sec_facts"] = sec_facts
         state["sec_filings"] = sec_filings
@@ -370,9 +372,11 @@ async def _node_fundamentals(state: AurumState, on_event: Callable) -> None:
 
     await on_event(
         {
-            "type": "agent_progress",
+            "type": "agent_complete",
             "agent": "fundamentals_analyst",
-            "message": "Fundamental data collected.",
+            "signal": "neutral",
+            "confidence": 100,
+            "reasoning": "Fundamental data collected.",
         }
     )
 
@@ -395,9 +399,11 @@ async def _node_technical(state: AurumState, on_event: Callable) -> None:
     )
     await on_event(
         {
-            "type": "agent_progress",
+            "type": "agent_complete",
             "agent": "technical_analyst",
-            "message": "Technical indicators computed.",
+            "signal": "neutral",
+            "confidence": 100,
+            "reasoning": "Technical indicators computed.",
         }
     )
 
@@ -414,9 +420,11 @@ async def _node_news(state: AurumState, on_event: Callable) -> None:
     state["news"] = await asyncio.to_thread(functools.partial(yf.get_news, limit=10))
     await on_event(
         {
-            "type": "agent_progress",
+            "type": "agent_complete",
             "agent": "news_analyst",
-            "message": f"Retrieved {len(state.get('news', []))} news articles.",
+            "signal": "neutral",
+            "confidence": 100,
+            "reasoning": f"Retrieved {len(state.get('news', []))} news articles.",
         }
     )
 
@@ -439,9 +447,11 @@ async def _node_macro(state: AurumState, on_event: Callable) -> None:
     state["yield_curve"] = yield_curve
     await on_event(
         {
-            "type": "agent_progress",
+            "type": "agent_complete",
             "agent": "macro_analyst",
-            "message": "Macro snapshot complete.",
+            "signal": "neutral",
+            "confidence": 100,
+            "reasoning": "Macro snapshot complete.",
         }
     )
 
@@ -510,8 +520,34 @@ async def _node_persona(
                 ),
             }
 
+            # Compute ROIC-WACC spread now that we have yield curve + fundamentals
+            yield_curve = state.get("yield_curve", {})
+            try:
+                roic  = fund.get("roic")
+                beta  = fund.get("beta") or 1.0
+                rf    = float(yield_curve.get("10y") or 4.5) / 100  # 10Y treasury
+                erp   = 0.055           # Damodaran equity risk premium estimate
+                cost_of_equity = rf + beta * erp
+                debt_to_cap    = fund.get("debt_to_capital") or 0.3
+                after_tax_cod  = (fund.get("cost_of_debt") or 0.05) * 0.75
+                wacc           = cost_of_equity * (1 - debt_to_cap) + after_tax_cod * debt_to_cap
+                roic_wacc_spread = round(roic - wacc, 4) if roic is not None else None
+            except Exception:
+                wacc             = None
+                roic_wacc_spread = None
+
+            fund_enriched = {
+                **fund,
+                "wacc":            round(wacc, 4) if wacc is not None else None,
+                "cost_of_equity":  round(cost_of_equity, 4) if wacc is not None else None,
+                "erp":             "5.5%",
+                "roic_wacc_spread": roic_wacc_spread,
+                # Alias for balance sheet agent access
+                "bvps":            fund.get("bvps"),
+            }
+
             data = {
-                "fundamentals": fund,
+                "fundamentals": fund_enriched,
                 "balance_sheet": state.get("balance_sheet", {}),
                 "income_statement": inc_enriched,
                 "cashflow": cf_enriched,
@@ -519,12 +555,12 @@ async def _node_persona(
                 "news": state.get("news", []),
                 "macro_summary": state.get("macro_summary", ""),
                 "sec_facts": state.get("sec_facts", {}),
-                "price_data": price_data,          # BUG-04 fix
-                "yield_curve": state.get("yield_curve", {}),  # for Damodaran risk-free rate
+                "price_data": price_data,
+                "yield_curve": yield_curve,
                 # Field aliases various agents use
-                "key_metrics": fund,               # BUG-08 fix (was technical_indicators)
+                "key_metrics": fund_enriched,      # BUG-08 fix (was technical_indicators)
                 "cash_flow": cf_enriched,          # alias for fundamentals_analyst
-                "company_info": fund,              # alias for macro_analyst
+                "company_info": fund_enriched,     # alias for macro_analyst
             }
             # Run the synchronous analyze() in a thread pool
             result = await asyncio.to_thread(agent.analyze, state["ticker"], data)
@@ -598,6 +634,7 @@ async def _node_debate_bull(
     state["bull_arguments"] = [bull_case]
 
     await on_event({"type": "debate_message", "side": "bull", "message": bull_case})
+    await on_event({"type": "agent_complete", "agent": "debate_bull", "signal": "neutral", "confidence": 100, "reasoning": "Bull case built."})
 
 
 async def _node_debate_bear(
@@ -646,6 +683,7 @@ async def _node_debate_bear(
     state["bear_arguments"] = [bear_case]
 
     await on_event({"type": "debate_message", "side": "bear", "message": bear_case})
+    await on_event({"type": "agent_complete", "agent": "debate_bear", "signal": "neutral", "confidence": 100, "reasoning": "Bear case built."})
 
 
 async def _node_research_manager(
@@ -698,9 +736,11 @@ async def _node_research_manager(
 
     await on_event(
         {
-            "type": "agent_progress",
+            "type": "agent_complete",
             "agent": "research_manager",
-            "message": synthesis[:300] + "...",
+            "signal": "neutral",
+            "confidence": 100,
+            "reasoning": synthesis[:300] + ("..." if len(synthesis) > 300 else ""),
         }
     )
 

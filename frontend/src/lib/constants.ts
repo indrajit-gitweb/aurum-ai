@@ -134,6 +134,7 @@ export const DEFAULT_PERSONAS: PersonaId[] = [
   "taleb",
   "cathie_wood",
   "graham",
+  "news_sentiment",
 ]
 
 export const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000"

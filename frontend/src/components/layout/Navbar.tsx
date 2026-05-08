@@ -6,6 +6,7 @@ import { Menu, X } from 'lucide-react'
 const NAV_LINKS = [
   { label: 'Home', path: '/' },
   { label: 'Analyser', path: '/analyser' },
+  { label: 'History', path: '/history' },
   { label: 'About', path: '#about' },
 ]
 
@@ -73,7 +74,7 @@ export default function Navbar() {
             )
           })}
           <Link
-            to="/analyser"
+            to="/history"
             className="font-raleway text-sm font-medium tracking-wider px-5 py-2 border transition-all duration-300 hover:bg-gold hover:text-black"
             style={{
               borderColor: 'rgba(201,168,76,0.5)',
@@ -81,7 +82,7 @@ export default function Navbar() {
             }}
             data-hover
           >
-            Analyse →
+            History
           </Link>
         </nav>
 
@@ -118,11 +119,11 @@ export default function Navbar() {
                 </Link>
               ))}
               <Link
-                to="/analyser"
+                to="/history"
                 className="font-raleway text-sm font-medium tracking-wider px-5 py-3 border border-gold/50 text-gold text-center"
                 data-hover
               >
-                Analyse a Stock →
+                History
               </Link>
             </div>
           </motion.div>
