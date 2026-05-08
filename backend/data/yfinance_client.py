@@ -8,6 +8,7 @@ on missing market data.
 """
 
 import logging
+import re as _re
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -16,6 +17,64 @@ import pandas as pd
 import yfinance as yf
 
 logger = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Key normalisation helpers (BUG-07 fix)
+# yfinance returns pandas index strings like "Total Revenue"; all agents expect
+# snake_case keys like "total_revenue" / short aliases like "revenue".
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _to_snake(key: str) -> str:
+    """'Total Revenue' → 'total_revenue', 'EBITDA' → 'ebitda'."""
+    return _re.sub(r'[^a-zA-Z0-9]+', '_', str(key)).lower().strip('_')
+
+
+# Alias maps: snake key → shorter/conventional name (key is KEPT, alias is ADDED)
+_INCOME_ALIASES: dict = {
+    "total_revenue": "revenue",
+    "basic_eps": "eps",
+    "diluted_eps": "diluted_eps",
+    "diluted_ni_availble_to_com_stockholders": "net_income_common",
+    "reconciled_depreciation": "depreciation",
+    "selling_general_and_administration": "sga",
+    "research_and_development": "r_and_d",
+}
+
+_BALANCE_ALIASES: dict = {
+    "total_liabilities_net_minority_interest": "total_liabilities",
+    "total_equity_gross_minority_interest": "total_equity",
+    "common_stock_equity": "stockholders_equity",
+    "cash_and_cash_equivalents": "cash",
+    "cash_cash_equivalents_and_short_term_investments": "cash_and_equivalents",
+    "long_term_debt_and_capital_lease_obligation": "long_term_debt",
+    "current_debt_and_capital_lease_obligation": "current_debt",
+}
+
+_CASHFLOW_ALIASES: dict = {
+    "free_cash_flow": "fcf",
+    "operating_cash_flow": "operating_cf",
+    "capital_expenditure": "capex",
+    "depreciation_amortization_depletion": "depreciation",
+    "net_income_from_continuing_operations": "net_income_cf",
+}
+
+
+def _normalize_statement(raw: dict, alias_map: dict) -> dict:
+    """Convert pandas financial statement keys to snake_case and apply aliases.
+
+    For each original key → produces ``snake_key`` entry.
+    If ``snake_key`` is in ``alias_map`` → also adds the alias key.
+    Both the snake and the alias point to the same value so agents can use
+    whichever convention they prefer.
+    """
+    result: dict = {}
+    for k, v in raw.items():
+        snake = _to_snake(str(k))
+        result[snake] = v
+        alias = alias_map.get(snake)
+        if alias and alias != snake:
+            result[alias] = v
+    return result
 
 
 class YFinanceClient:
@@ -76,19 +135,26 @@ class YFinanceClient:
         client = yf.Ticker(ticker.upper()) if ticker else self._yf
         try:
             info = client.info
-            return {
+            ev     = info.get("enterpriseValue")
+            ebitda_v = info.get("ebitda")
+            mcap   = info.get("marketCap")
+            fcf_v  = info.get("freeCashflow")
+            result = {
                 "pe_ratio": info.get("trailingPE"),
                 "forward_pe": info.get("forwardPE"),
                 "pb_ratio": info.get("priceToBook"),
                 "ps_ratio": info.get("priceToSalesTrailing12Months"),
-                "market_cap": info.get("marketCap"),
-                "enterprise_value": info.get("enterpriseValue"),
+                "market_cap": mcap,
+                "enterprise_value": ev,
                 "revenue": info.get("totalRevenue"),
                 "revenue_growth": info.get("revenueGrowth"),
+                "revenue_growth_yoy": info.get("revenueGrowth"),   # alias
                 "earnings": info.get("netIncomeToCommon"),
-                "ebitda": info.get("ebitda"),
+                "net_income": info.get("netIncomeToCommon"),        # alias
+                "ebitda": ebitda_v,
                 "total_debt": info.get("totalDebt"),
-                "free_cashflow": info.get("freeCashflow"),
+                "free_cashflow": fcf_v,
+                "fcf": fcf_v,                                       # alias
                 "eps": info.get("trailingEps"),
                 "dividend_yield": info.get("dividendYield"),
                 "beta": info.get("beta"),
@@ -102,36 +168,69 @@ class YFinanceClient:
                 "employees": info.get("fullTimeEmployees"),
                 "country": info.get("country"),
                 "currency": info.get("currency"),
+                # Profitability margins (direct from info — fast, no stmt needed)
+                "gross_margin": info.get("grossMargins"),
+                "operating_margin": info.get("operatingMargins"),
+                "net_margin": info.get("profitMargins"),
+                # Return ratios
+                "roe": info.get("returnOnEquity"),
+                "roa": info.get("returnOnAssets"),
+                # Derived multiples
+                "ev_ebitda": (
+                    round(ev / ebitda_v, 2)
+                    if ev and ebitda_v and ebitda_v != 0 else None
+                ),
+                "fcf_yield": (
+                    round(fcf_v / mcap * 100, 2)
+                    if fcf_v and mcap and mcap != 0 else None
+                ),
             }
+            return result
         except Exception as exc:
             logger.warning("[%s] get_fundamentals failed: %s", self.ticker, exc)
             return {}
 
     def get_balance_sheet(self, ticker: Optional[str] = None) -> dict:
-        """Return the most recent annual balance sheet as a dict.
+        """Return the most recent annual balance sheet as a normalised dict.
+
+        Keys are snake_case (e.g. ``total_assets``, ``total_debt``, ``cash``).
+        Derived ratios ``current_ratio`` and ``debt_equity`` are appended where
+        the required inputs are available.
 
         Returns:
-            Nested dict mapping balance-sheet line items to their values.
-            Empty dict on failure.
+            Normalised dict.  Empty dict on failure.
         """
         client = yf.Ticker(ticker.upper()) if ticker else self._yf
         try:
             bs = client.balance_sheet
             if bs is None or bs.empty:
                 return {}
-            # Most recent column
             latest = bs.iloc[:, 0]
-            return {str(k): (None if pd.isna(v) else float(v)) for k, v in latest.items()}
+            raw = {str(k): (None if pd.isna(v) else float(v)) for k, v in latest.items()}
+            result = _normalize_statement(raw, _BALANCE_ALIASES)
+            # Derived ratios
+            ca = result.get("current_assets")
+            cl = result.get("current_liabilities")
+            td = result.get("total_debt")
+            eq = result.get("stockholders_equity") or result.get("total_equity") or result.get("common_stock_equity")
+            if ca and cl and cl != 0:
+                result["current_ratio"] = round(ca / cl, 2)
+            if td is not None and eq and eq != 0:
+                result["debt_equity"] = round(td / eq, 2)
+            return result
         except Exception as exc:
             logger.warning("[%s] get_balance_sheet failed: %s", self.ticker, exc)
             return {}
 
     def get_income_statement(self, ticker: Optional[str] = None) -> dict:
-        """Return the most recent annual income statement as a dict.
+        """Return the most recent annual income statement as a normalised dict.
+
+        Keys are snake_case with short aliases (e.g. ``total_revenue`` and ``revenue``).
+        Derived margin ratios ``gross_margin``, ``operating_margin``, and ``net_margin``
+        are appended where possible.
 
         Returns:
-            Nested dict mapping P&L line items to their values.
-            Empty dict on failure.
+            Normalised dict.  Empty dict on failure.
         """
         client = yf.Ticker(ticker.upper()) if ticker else self._yf
         try:
@@ -139,16 +238,35 @@ class YFinanceClient:
             if inc is None or inc.empty:
                 return {}
             latest = inc.iloc[:, 0]
-            return {str(k): (None if pd.isna(v) else float(v)) for k, v in latest.items()}
+            raw = {str(k): (None if pd.isna(v) else float(v)) for k, v in latest.items()}
+            result = _normalize_statement(raw, _INCOME_ALIASES)
+            # Derived margin ratios (prefer the short "revenue" alias if already created)
+            rev = result.get("revenue") or result.get("total_revenue")
+            if rev and rev != 0:
+                gp = result.get("gross_profit")
+                oi = result.get("operating_income")
+                ni = result.get("net_income")
+                if gp is not None and "gross_margin" not in result:
+                    result["gross_margin"] = round(gp / rev, 4)
+                if oi is not None and "operating_margin" not in result:
+                    result["operating_margin"] = round(oi / rev, 4)
+                if ni is not None and "net_margin" not in result:
+                    result["net_margin"] = round(ni / rev, 4)
+            return result
         except Exception as exc:
             logger.warning("[%s] get_income_statement failed: %s", self.ticker, exc)
             return {}
 
     def get_cashflow(self, ticker: Optional[str] = None) -> dict:
-        """Return the most recent annual cash-flow statement as a dict.
+        """Return the most recent annual cash-flow statement as a normalised dict.
+
+        Keys are snake_case with short aliases:
+          - ``free_cash_flow`` / ``fcf``
+          - ``operating_cash_flow`` / ``operating_cf``
+          - ``capital_expenditure`` / ``capex``
 
         Returns:
-            Dict mapping line items to values.  Empty dict on failure.
+            Normalised dict.  Empty dict on failure.
         """
         client = yf.Ticker(ticker.upper()) if ticker else self._yf
         try:
@@ -156,7 +274,8 @@ class YFinanceClient:
             if cf is None or cf.empty:
                 return {}
             latest = cf.iloc[:, 0]
-            return {str(k): (None if pd.isna(v) else float(v)) for k, v in latest.items()}
+            raw = {str(k): (None if pd.isna(v) else float(v)) for k, v in latest.items()}
+            return _normalize_statement(raw, _CASHFLOW_ALIASES)
         except Exception as exc:
             logger.warning("[%s] get_cashflow failed: %s", self.ticker, exc)
             return {}

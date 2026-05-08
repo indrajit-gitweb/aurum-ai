@@ -39,36 +39,27 @@ class MacroAnalyst(BaseAgent):
         )
 
     def analyze(self, ticker: str, data: dict) -> AgentSignal:
-        macro = data.get("macro_data", {})
-        company = data.get("company_info", {})
+        # BUG-02/03 fix: backend passes macro_summary as a plain string (from FREDClient),
+        # NOT a dict under "macro_data".  Use it directly.
+        macro_summary = data.get("macro_summary", "") or data.get("macro_data", "")
+        if isinstance(macro_summary, dict):
+            # Legacy fallback: if somehow a dict arrives, format it
+            macro_summary = "  ".join(f"{k}: {v}" for k, v in macro_summary.items() if v)
+        company = data.get("company_info", {}) or data.get("fundamentals", {})
 
         prompt = f"""Assess how the current macroeconomic environment affects {ticker} ({company.get('sector', 'unknown sector')}).
 
-MACROECONOMIC CONDITIONS:
-  Fed Funds Rate: {macro.get('fed_funds_rate', 'N/A')}
-  Fed Rate Direction: {macro.get('fed_rate_direction', 'N/A')}
-  10Y Treasury Yield: {macro.get('treasury_10y', 'N/A')}
-  2Y Treasury Yield: {macro.get('treasury_2y', 'N/A')}
-  Yield Curve (10Y-2Y spread): {macro.get('yield_curve_spread', 'N/A')}
-  CPI Inflation (YoY): {macro.get('cpi_yoy', 'N/A')}
-  Core PCE: {macro.get('core_pce', 'N/A')}
-  GDP Growth (latest quarter): {macro.get('gdp_growth', 'N/A')}
-  Unemployment Rate: {macro.get('unemployment_rate', 'N/A')}
-  Consumer Confidence: {macro.get('consumer_confidence', 'N/A')}
-  ISM Manufacturing PMI: {macro.get('ism_manufacturing', 'N/A')}
-  ISM Services PMI: {macro.get('ism_services', 'N/A')}
-  Credit Spreads (HY): {macro.get('hy_spread', 'N/A')}
-  USD Index (DXY): {macro.get('dxy', 'N/A')}
-  VIX (Fear Index): {macro.get('vix', 'N/A')}
+MACROECONOMIC SNAPSHOT:
+{macro_summary if macro_summary else 'Macro data currently unavailable — rely on general knowledge.'}
 
 COMPANY CONTEXT:
   Sector: {company.get('sector', 'N/A')}
   Industry: {company.get('industry', 'N/A')}
-  Revenue Geography: {company.get('revenue_geography', 'N/A')}
-  Interest Rate Sensitivity: {company.get('rate_sensitivity', 'N/A')}
-  Cyclicality: {company.get('cyclicality', 'N/A')}
+  Beta: {company.get('beta', 'N/A')}
+  Country: {company.get('country', 'N/A')}
 
-Evaluate how these macro conditions serve as tailwinds or headwinds for {ticker}.
+Evaluate how the current macro conditions (interest rates, inflation, GDP growth, labour market,
+yield curve shape) serve as tailwinds or headwinds specifically for {ticker} and its sector.
 Return your analysis as the specified JSON object.
 """
 

@@ -69,6 +69,8 @@ export function useWebSocket(sessionId: string | null): UseWebSocketReturn {
   const reconnectAttempts = useRef(0)
   // Prevents reconnect when the server explicitly told us the session is gone
   const sessionLostRef = useRef(false)
+  // BUG-15 fix: track isComplete via ref to avoid stale closure inside onclose
+  const isCompleteRef = useRef(false)
 
   const connect = useCallback(() => {
     if (!sessionId) return
@@ -97,6 +99,7 @@ export function useWebSocket(sessionId: string | null): UseWebSocketReturn {
           if (event.type === 'final_result') {
             const { type: _t, timestamp: _ts, ...resultData } = stamped as Record<string, unknown>
             setFinalResult(resultData as unknown as FinalResult)
+            isCompleteRef.current = true   // BUG-15 fix: update ref before state
             setIsComplete(true)
           }
 
@@ -116,8 +119,9 @@ export function useWebSocket(sessionId: string | null): UseWebSocketReturn {
 
       ws.onclose = () => {
         setIsConnected(false)
-        // Only retry if: analysis didn't complete, session still valid, < 3 attempts
-        if (!isComplete && !sessionLostRef.current && reconnectAttempts.current < 3) {
+        // BUG-15 fix: use ref (not state) to avoid stale closure — isComplete state
+        // is captured at closure creation time and never updates inside onclose.
+        if (!isCompleteRef.current && !sessionLostRef.current && reconnectAttempts.current < 3) {
           reconnectAttempts.current += 1
           reconnectRef.current = setTimeout(connect, 2000 * reconnectAttempts.current)
         }
@@ -134,6 +138,7 @@ export function useWebSocket(sessionId: string | null): UseWebSocketReturn {
   useEffect(() => {
     if (!sessionId) return
     sessionLostRef.current = false   // reset on new session
+    isCompleteRef.current = false    // BUG-15 fix: reset on new session
     reconnectAttempts.current = 0
     connect()
     return () => {

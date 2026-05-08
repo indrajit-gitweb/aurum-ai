@@ -53,8 +53,8 @@ MOVING AVERAGES:
   SMA 20: {tech.get('sma_20', 'N/A')}
   SMA 50: {tech.get('sma_50', 'N/A')}
   SMA 200: {tech.get('sma_200', 'N/A')}
-  Price vs SMA 50 (%): {tech.get('price_vs_sma50_pct', 'N/A')}
-  Price vs SMA 200 (%): {tech.get('price_vs_sma200_pct', 'N/A')}
+  Price vs SMA 50 (%): {tech.get('price_vs_sma50', 'N/A')}
+  Price vs SMA 200 (%): {tech.get('price_vs_sma200', 'N/A')}
   Golden/Death Cross: {tech.get('sma_cross_signal', 'N/A')}
 
 MOMENTUM INDICATORS:

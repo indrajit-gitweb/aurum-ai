@@ -10,14 +10,11 @@ from typing import Optional
 
 from openai import OpenAI, RateLimitError as OpenAIRateLimitError
 
+from llm.providers.base_provider import RateLimitError  # BUG-09 fix: use shared class
+
 logger = logging.getLogger(__name__)
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-
-
-class RateLimitError(Exception):
-    """Raised when the provider returns a 429 rate-limit response."""
-    pass
 
 
 class OpenRouterClient:

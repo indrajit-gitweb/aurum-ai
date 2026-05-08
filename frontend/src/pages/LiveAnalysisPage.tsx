@@ -504,6 +504,19 @@ export default function LiveAnalysisPage() {
     )
   })
 
+  // BUG-14 fix: use actual selected persona count, not total PERSONAS.length (15)
+  const [selectedPersonaCount] = useState<number>(() => {
+    if (!sessionId) return PERSONAS.length
+    try {
+      const stored = sessionStorage.getItem(`personas_${sessionId}`)
+      if (stored) {
+        const arr = JSON.parse(stored) as string[]
+        return arr.length > 0 ? arr.length : PERSONAS.length
+      }
+    } catch { /* ignore */ }
+    return PERSONAS.length
+  })
+
   // ── Process incoming WebSocket events ────────────────────────────────────────
   useEffect(() => {
     const latest = events[events.length - 1]
@@ -596,7 +609,7 @@ export default function LiveAnalysisPage() {
                       Analysis in progress
                     </p>
                     <p className="font-raleway text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>
-                      {completedCount} / {PERSONAS.length} analysts complete
+                      {completedCount} / {selectedPersonaCount} analysts complete
                     </p>
                   </div>
                 </div>
@@ -617,7 +630,7 @@ export default function LiveAnalysisPage() {
             <motion.div
               className="h-full"
               style={{ background: 'linear-gradient(90deg, #C9A84C, #FFD700)', boxShadow: '0 0 8px rgba(201,168,76,0.4)' }}
-              animate={{ width: `${(completedCount / PERSONAS.length) * 100}%` }}
+              animate={{ width: `${(completedCount / selectedPersonaCount) * 100}%` }}
               transition={{ duration: 0.5 }}
             />
           </div>

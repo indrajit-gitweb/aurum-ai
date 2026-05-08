@@ -470,19 +470,60 @@ async def _node_persona(
     else:
         try:
             agent = AgentClass(llm_router)
+            fund  = state.get("fundamentals", {})
+            tech  = state.get("technical_indicators", {})
+            cf    = state.get("cashflow", {})
+            inc   = state.get("income_statement", {})
+
+            # Build price_data for technical_analyst (BUG-04 fix)
+            current_price = tech.get("current_price")
+            high_52w      = fund.get("52w_high")
+            low_52w       = fund.get("52w_low")
+            price_data = {
+                "current_price":    current_price,
+                "week_52_high":     high_52w,
+                "week_52_low":      low_52w,
+                "pct_from_52w_high": (
+                    round((current_price / high_52w - 1) * 100, 2)
+                    if current_price and high_52w and high_52w > 0 else None
+                ),
+                "avg_volume_30d":   fund.get("avg_volume"),
+            }
+
+            # Enrich income statement with revenue_growth_yoy from fundamentals
+            inc_enriched = {
+                **inc,
+                "revenue_growth_yoy": (
+                    inc.get("revenue_growth_yoy")
+                    or fund.get("revenue_growth_yoy")
+                    or fund.get("revenue_growth")
+                ),
+            }
+
+            # Enrich cashflow with fcf_margin (needs revenue from income stmt)
+            rev = inc.get("revenue") or inc.get("total_revenue")
+            fcf = cf.get("fcf") or cf.get("free_cash_flow")
+            cf_enriched = {
+                **cf,
+                "fcf_margin": (
+                    round(fcf / rev, 4) if fcf and rev and rev != 0 else None
+                ),
+            }
+
             data = {
-                "fundamentals": state.get("fundamentals", {}),
+                "fundamentals": fund,
                 "balance_sheet": state.get("balance_sheet", {}),
-                "income_statement": state.get("income_statement", {}),
-                "cashflow": state.get("cashflow", {}),
-                "technical_indicators": state.get("technical_indicators", {}),
+                "income_statement": inc_enriched,
+                "cashflow": cf_enriched,
+                "technical_indicators": tech,
                 "news": state.get("news", []),
                 "macro_summary": state.get("macro_summary", ""),
                 "sec_facts": state.get("sec_facts", {}),
-                # Include field aliases that some agents expect
-                "key_metrics": state.get("technical_indicators", {}),
-                "cash_flow": state.get("cashflow", {}),
-                "company_info": state.get("fundamentals", {}),
+                "price_data": price_data,          # BUG-04 fix
+                # Field aliases various agents use
+                "key_metrics": fund,               # BUG-08 fix (was technical_indicators)
+                "cash_flow": cf_enriched,          # alias for fundamentals_analyst
+                "company_info": fund,              # alias for macro_analyst
             }
             # Run the synchronous analyze() in a thread pool
             result = await asyncio.to_thread(agent.analyze, state["ticker"], data)

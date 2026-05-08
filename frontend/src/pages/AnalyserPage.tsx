@@ -186,9 +186,10 @@ export default function AnalyserPage() {
   const handleStart = async () => {
     const sessionId = await startAnalysis()
     if (sessionId) {
-      // Persist ticker so LiveAnalysisPage can display it correctly
+      // Persist ticker + selected persona count so LiveAnalysisPage shows correct progress
       sessionStorage.setItem(`ticker_${sessionId}`, form.ticker)
       sessionStorage.setItem('last_ticker', form.ticker)
+      sessionStorage.setItem(`personas_${sessionId}`, JSON.stringify(form.selectedPersonas))
       navigate(`/analyze/live/${sessionId}`)
     }
   }
