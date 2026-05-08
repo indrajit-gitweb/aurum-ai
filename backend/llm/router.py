@@ -1,95 +1,129 @@
 """
-Multi-provider LLM router for AURUM AI.
+AURUM AI — Multi-provider LLM router with automatic fallback.
 
-Priority order (left to right):
+Priority order for QUICK tasks (speed optimised):
   1. User-supplied key (whichever provider they chose)
-  2. Groq  (env GROQ_API_KEY)
-  3. Gemini (env GEMINI_API_KEY)
-  4. OpenRouter (env OPENROUTER_API_KEY)
+  2. Cerebras  — fastest free inference on the planet (1 000 + tok/s)
+  3. Groq      — very fast free inference
+  4. SambaNova — fast, with 405B model available
+  5. Gemini    — large context window (1 M tokens)
+  6. OpenRouter — always-on free-model fallback
 
-Any provider whose key is absent/empty is silently skipped.
-On RateLimitError the router tries the next provider automatically.
+Priority order for DEEP tasks (quality optimised):
+  1. User-supplied key
+  2. SambaNova 405B — largest free model available
+  3. Groq DeepSeek  — chain-of-thought reasoning
+  4. Gemini 1.5     — 1 M context for long documents
+  5. Cerebras 70B   — fast fallback
+  6. OpenRouter     — free-model fallback
+
+Any provider whose env key is absent/empty is silently skipped.
+On RateLimitError the router automatically tries the next provider.
 """
 
 import logging
 import os
-from typing import Callable, Optional
+from typing import Optional
 
+from llm.providers.base_provider import (
+    RateLimitError,
+    ProviderError,
+    AllProvidersExhaustedError,
+)
 from llm.providers.groq_client import GroqClient
-from llm.providers.groq_client import RateLimitError as GroqRateLimitError
 from llm.providers.gemini_client import GeminiClient
-from llm.providers.gemini_client import RateLimitError as GeminiRateLimitError
 from llm.providers.openrouter_client import OpenRouterClient
-from llm.providers.openrouter_client import RateLimitError as OpenRouterRateLimitError
+from llm.providers.cerebras_client import CerebrasClient
+from llm.providers.sambanova_client import SambanovaClient
 
 logger = logging.getLogger(__name__)
 
-# Unified alias used by callers
-RateLimitError = (GroqRateLimitError, GeminiRateLimitError, OpenRouterRateLimitError)
-
-
-class AllProvidersExhaustedError(Exception):
-    """Raised when every configured LLM provider has failed or rate-limited."""
-    pass
-
 
 class LLMRouter:
-    """Routes LLM calls across Groq → Gemini → OpenRouter with auto-fallback.
+    """Routes LLM calls across all configured providers with auto-fallback.
 
     Args:
-        user_key: Optional API key supplied by the end user.
-        user_provider: Which provider the user key belongs to
-            (``"groq"``, ``"gemini"``, or ``"openrouter"``).
+        user_groq_key:       Optional Groq key supplied by the end user.
+        user_gemini_key:     Optional Gemini key supplied by the end user.
+        user_openrouter_key: Optional OpenRouter key supplied by the end user.
     """
 
     def __init__(
         self,
-        user_key: Optional[str] = None,
-        user_provider: str = "groq",
+        user_groq_key: Optional[str] = None,
+        user_gemini_key: Optional[str] = None,
+        user_openrouter_key: Optional[str] = None,
     ) -> None:
-        self._providers: list[tuple[str, object]] = []
 
-        # ── User-supplied key goes first ──────────────────────────────────────
-        if user_key and user_key.strip():
-            provider = user_provider.lower().strip()
+        # Build client instances (skip if key is missing)
+        def _mk(cls, key: Optional[str]):
+            k = (key or "").strip()
+            if not k or k in ("add-later", ""):
+                return None
             try:
-                if provider == "groq":
-                    self._providers.append(("groq_user", GroqClient(user_key)))
-                elif provider == "gemini":
-                    self._providers.append(("gemini_user", GeminiClient(user_key)))
-                elif provider == "openrouter":
-                    self._providers.append(("openrouter_user", OpenRouterClient(user_key)))
-                else:
-                    logger.warning("Unknown user provider '%s' — ignoring user key.", provider)
+                return cls(k)
             except Exception as exc:
-                logger.warning("Failed to initialise user-supplied %s client: %s", provider, exc)
+                logger.warning("Failed to init %s: %s", cls.__name__, exc)
+                return None
+
+        # ── User-supplied keys (highest priority) ─────────────────────────────
+        self._user_groq       = _mk(GroqClient,       user_groq_key)
+        self._user_gemini     = _mk(GeminiClient,     user_gemini_key)
+        self._user_openrouter = _mk(OpenRouterClient, user_openrouter_key)
 
         # ── Shared pool keys from environment ─────────────────────────────────
-        groq_key = os.getenv("GROQ_API_KEY", "").strip()
-        if groq_key:
-            try:
-                self._providers.append(("groq", GroqClient(groq_key)))
-            except Exception as exc:
-                logger.warning("Failed to initialise Groq client: %s", exc)
+        self._cerebras   = _mk(CerebrasClient,   os.getenv("CEREBRAS_API_KEY"))
+        self._groq       = _mk(GroqClient,        os.getenv("GROQ_API_KEY"))
+        self._sambanova  = _mk(SambanovaClient,   os.getenv("SAMBANOVA_API_KEY"))
+        self._gemini     = _mk(GeminiClient,      os.getenv("GEMINI_API_KEY"))
+        self._openrouter = _mk(OpenRouterClient,  os.getenv("OPENROUTER_API_KEY"))
 
-        gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
-        if gemini_key:
-            try:
-                self._providers.append(("gemini", GeminiClient(gemini_key)))
-            except Exception as exc:
-                logger.warning("Failed to initialise Gemini client: %s", exc)
+        # ── Priority chains ────────────────────────────────────────────────────
+        # QUICK: speed first — Cerebras → Groq → SambaNova → Gemini → OpenRouter
+        self._quick_chain = [
+            ("cerebras_user",   self._user_groq),       # user Groq also counts as quick
+            ("groq_user",       self._user_groq),
+            ("cerebras",        self._cerebras),
+            ("groq",            self._groq),
+            ("sambanova",       self._sambanova),
+            ("gemini",          self._gemini),
+            ("openrouter",      self._openrouter),
+            ("gemini_user",     self._user_gemini),
+            ("openrouter_user", self._user_openrouter),
+        ]
 
-        openrouter_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-        if openrouter_key:
-            try:
-                self._providers.append(("openrouter", OpenRouterClient(openrouter_key)))
-            except Exception as exc:
-                logger.warning("Failed to initialise OpenRouter client: %s", exc)
+        # DEEP: quality first — SambaNova 405B → Groq → Gemini → Cerebras → OpenRouter
+        self._deep_chain = [
+            ("groq_user",       self._user_groq),
+            ("gemini_user",     self._user_gemini),
+            ("openrouter_user", self._user_openrouter),
+            ("sambanova",       self._sambanova),
+            ("groq",            self._groq),
+            ("gemini",          self._gemini),
+            ("cerebras",        self._cerebras),
+            ("openrouter",      self._openrouter),
+        ]
 
-        if not self._providers:
+        # Strip None entries
+        self._quick_chain = [(n, c) for n, c in self._quick_chain if c is not None]
+        self._deep_chain  = [(n, c) for n, c in self._deep_chain  if c is not None]
+
+        # Deduplicate while preserving order (same client object may appear twice)
+        seen: set = set()
+        self._quick_chain = [(n, c) for n, c in self._quick_chain
+                             if id(c) not in seen and not seen.add(id(c))]  # type: ignore
+        seen = set()
+        self._deep_chain  = [(n, c) for n, c in self._deep_chain
+                             if id(c) not in seen and not seen.add(id(c))]  # type: ignore
+
+        total = len(set(id(c) for _, c in self._quick_chain + self._deep_chain))
+        logger.info("LLMRouter ready — %d unique provider(s) configured.", total)
+
+        if total == 0:
             logger.error(
-                "LLMRouter initialised with zero providers.  "
-                "Set at least one of GROQ_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY."
+                "No LLM providers configured! "
+                "Set at least one of: GROQ_API_KEY, GEMINI_API_KEY, "
+                "OPENROUTER_API_KEY, CEREBRAS_API_KEY, SAMBANOVA_API_KEY"
             )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -100,70 +134,63 @@ class LLMRouter:
         """Invoke the LLM with automatic provider fallback.
 
         Args:
-            messages: Conversation history as a list of role/content dicts
-                (or LangChain message objects).
-            task_type: ``"quick"`` (default, fast model) or ``"deep"``
-                (larger / long-context model).
+            messages:  List of role/content dicts.
+            task_type: ``"quick"`` (speed, for analyst/persona agents) or
+                       ``"deep"`` (quality, for debate/PM agents).
 
         Returns:
-            The first successful assistant response text.
+            Assistant response text from the first successful provider.
 
         Raises:
-            AllProvidersExhaustedError: When every provider is rate-limited
-                or unavailable.
+            AllProvidersExhaustedError: When every provider fails.
         """
-        if not self._providers:
-            raise AllProvidersExhaustedError("No LLM providers are configured.")
+        chain = self._deep_chain if task_type == "deep" else self._quick_chain
+
+        if not chain:
+            raise AllProvidersExhaustedError(
+                "No LLM providers are configured. "
+                "Please add at least one API key in the sidebar or contact the app owner."
+            )
 
         last_exc: Optional[Exception] = None
-        for name, client in self._providers:
+
+        for name, client in chain:
             try:
                 if task_type == "deep":
                     response = client.invoke_deep(messages)
                 else:
                     response = client.invoke(messages)
-                logger.debug("LLMRouter: success via provider '%s'.", name)
+
+                logger.debug("LLMRouter: success via '%s' (%s).", name, task_type)
                 return response
-            except RateLimitError as exc:  # type: ignore[misc]
+
+            except (RateLimitError, ProviderError) as exc:
                 logger.warning(
-                    "LLMRouter: provider '%s' rate-limited, trying next. (%s)",
-                    name,
-                    exc,
+                    "LLMRouter: '%s' unavailable (%s), trying next provider.",
+                    name, exc,
                 )
                 last_exc = exc
                 continue
+
             except Exception as exc:
-                logger.error(
-                    "LLMRouter: provider '%s' raised unexpected error: %s",
-                    name,
-                    exc,
-                )
+                logger.error("LLMRouter: '%s' unexpected error: %s", name, exc)
                 last_exc = exc
                 continue
 
         raise AllProvidersExhaustedError(
-            f"All {len(self._providers)} provider(s) exhausted.  "
-            f"Last error: {last_exc}"
+            f"All {len(chain)} provider(s) exhausted. Last error: {last_exc}"
         )
 
     def get_status(self) -> dict:
-        """Return which providers are configured and available.
-
-        Returns:
-            Dictionary mapping provider names to booleans.
-            User-supplied providers show up as ``"<provider>_user": True``.
-        """
-        status = {
-            "groq": False,
-            "gemini": False,
-            "openrouter": False,
-            "groq_user": False,
-            "gemini_user": False,
-            "openrouter_user": False,
-            "any_available": bool(self._providers),
-            "provider_count": len(self._providers),
+        """Return which providers are active."""
+        all_clients = {
+            "cerebras":   self._cerebras,
+            "groq":       self._groq,
+            "sambanova":  self._sambanova,
+            "gemini":     self._gemini,
+            "openrouter": self._openrouter,
         }
-        for name, _ in self._providers:
-            if name in status:
-                status[name] = True
+        status = {name: (client is not None) for name, client in all_clients.items()}
+        status["total_configured"] = sum(status.values())
+        status["any_available"]    = status["total_configured"] > 0
         return status

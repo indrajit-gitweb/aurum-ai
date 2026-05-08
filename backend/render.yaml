@@ -8,10 +8,14 @@ services:
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: GROQ_API_KEY
-        sync: false          # You paste this in Render dashboard
+        sync: false          # Paste in Render dashboard — never in code
       - key: GEMINI_API_KEY
         sync: false
       - key: OPENROUTER_API_KEY
+        sync: false
+      - key: CEREBRAS_API_KEY
+        sync: false
+      - key: SAMBANOVA_API_KEY
         sync: false
       - key: FRED_API_KEY
         sync: false
