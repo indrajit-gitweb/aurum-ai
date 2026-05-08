@@ -106,34 +106,47 @@ class OpenRouterClient:
             raise ProviderError(f"OpenRouter error: {exc}") from exc
 
     def invoke_deep(self, messages: list) -> str:
-        """Invoke the best available free deep model with automatic fallback.
+        """Invoke the best available free deep model with per-model fallback.
 
-        Tries DEEP_MODELS in order, skipping models that are no longer hosted
-        on OpenRouter (404 ProviderError).  Propagates RateLimitError immediately
-        so the router can try the next provider in the chain.
+        Tries DEEP_MODELS in order.  Both 404 (model gone) AND 429 (model
+        rate-limited) cause the next model to be tried — OpenRouter hosts many
+        free models and typically at least one is available.  Only when the
+        entire list is exhausted is an error raised to the LLMRouter.
 
-        Args:
-            messages: List of message dicts or LangChain messages.
-
-        Returns:
-            The assistant's response as a plain string.
+        Key distinction from invoke():
+          - invoke() propagates RateLimitError immediately (whole-provider limit).
+          - invoke_deep() treats a single-model 429 as a per-model limit and
+            rotates to the next model before giving up on the provider.
 
         Raises:
-            RateLimitError: If a rate-limit is hit (propagates to LLMRouter).
-            ProviderError: If all deep models are unavailable.
+            RateLimitError: Only if ALL models in DEEP_MODELS are rate-limited.
+            ProviderError:  If all models return 404 / other errors.
         """
         last_exc: Optional[Exception] = None
+        all_rate_limited = True   # assume rate-limited until we see a non-429 error
+
         for model in self.DEEP_MODELS:
             try:
                 result = self.invoke(messages, model=model)
                 logger.debug("OpenRouter deep: success via '%s'.", model)
                 return result
-            except RateLimitError:
-                raise   # router handles rate limits
+            except RateLimitError as exc:
+                # This model is temporarily rate-limited — try the next one
+                logger.warning("OpenRouter deep: '%s' rate-limited, trying next model.", model)
+                last_exc = exc
+                continue   # ← KEY FIX: was `raise` before, which abandoned all remaining models
             except ProviderError as exc:
-                logger.warning("OpenRouter deep: model '%s' unavailable, trying next.", model)
+                # Model is gone (404) or other non-rate-limit error
+                all_rate_limited = False
+                logger.warning("OpenRouter deep: '%s' unavailable (%s), trying next.", model, exc)
                 last_exc = exc
                 continue
+
+        # All models tried — report the appropriate error type
+        if all_rate_limited:
+            raise RateLimitError(
+                f"OpenRouter: all {len(self.DEEP_MODELS)} deep models rate-limited. Last: {last_exc}"
+            )
         raise ProviderError(
             f"OpenRouter: all {len(self.DEEP_MODELS)} deep models exhausted. Last: {last_exc}"
         )

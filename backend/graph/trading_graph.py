@@ -569,7 +569,18 @@ async def _node_persona(
             reasoning = result.reasoning
         except Exception as exc:
             logger.warning("Persona %s failed: %s", persona_id, exc)
-            signal, confidence, reasoning = "neutral", 50, str(exc)
+            exc_str = str(exc)
+            if "exhausted" in exc_str.lower() or "rate limit" in exc_str.lower() or "429" in exc_str:
+                reasoning = (
+                    "⚠ All free LLM providers are temporarily rate-limited. "
+                    "Add your own API key (Groq, Gemini, or OpenRouter) in the sidebar "
+                    "to get unlimited analysis without shared rate limits."
+                )
+                confidence = 0
+            else:
+                reasoning = f"Analysis failed: {exc_str[:300]}"
+                confidence = 50
+            signal = "neutral"
 
     await on_event(
         {
@@ -753,7 +764,8 @@ async def _node_research_manager(
             confidence_out = result.confidence or confidence_out
         except Exception as exc:
             logger.warning("ResearchManager agent failed: %s", exc)
-            # Fall back to simple inline synthesis
+            # Fall back to a compact inline synthesis using the QUICK chain
+            # (deep chain may already be exhausted by the time RM runs)
             signals_summary = "\n".join(
                 f"- {s['agent'].title()}: {s['signal'].upper()} ({s['confidence']}%)"
                 for s in state.get("persona_signals", [])
@@ -762,16 +774,21 @@ async def _node_research_manager(
             bear = "\n".join(state.get("bear_arguments", []))
             messages = [
                 {"role": "system", "content": (
-                    "You are the Head of Research. Synthesise the analyst signals and debate "
-                    "into a clear investment recommendation (2-3 paragraphs). "
-                    "Note bull/bear case score and your recommended conviction level."
+                    "You are the Head of Research. Given analyst signals and a bull/bear debate, "
+                    "write a concise 2-paragraph synthesis: "
+                    "(1) overall verdict and conviction level, "
+                    "(2) top 2 risks to watch. Be direct and data-driven."
                 )},
                 {"role": "user", "content": (
-                    f"Analyst Signals:\n{signals_summary}\n\n"
-                    f"Bull Case:\n{bull[:500]}\n\nBear Case:\n{bear[:500]}"
+                    f"Signals:\n{signals_summary}\n\n"
+                    f"Bull:\n{bull[:400]}\n\nBear:\n{bear[:400]}"
                 )},
             ]
-            synthesis = await _async_llm_invoke(llm_router, messages, task_type="deep")
+            synthesis = await _async_llm_invoke(
+                llm_router, messages,
+                task_type="quick",   # ← use quick chain as it has more headroom
+                fallback="Synthesis unavailable — rate limits hit. Core verdict derived from persona vote.",
+            )
 
     state["research_synthesis"] = synthesis
 
@@ -1042,12 +1059,17 @@ class TradingGraph:
             _node_macro(state, on_event),
         )
 
-        # ── 3. Parallel persona analysis ──────────────────────────────────────
-        # Each persona runs its LLM call in a thread pool concurrently.
-        persona_tasks = [
-            _node_persona(pid, state, llm_router, on_event)
-            for pid in valid_personas
-        ]
+        # ── 3. Rate-throttled persona analysis ───────────────────────────────
+        # A semaphore of 2 ensures at most 2 LLM calls fire simultaneously.
+        # Without this, all N personas fire at once and exhaust every provider's
+        # free-tier rate limit before the second persona gets a response.
+        _persona_sem = asyncio.Semaphore(2)
+
+        async def _throttled_persona(pid: str) -> PersonaSignalDict:
+            async with _persona_sem:
+                return await _node_persona(pid, state, llm_router, on_event)
+
+        persona_tasks = [_throttled_persona(pid) for pid in valid_personas]
         persona_results: list[PersonaSignalDict] = await asyncio.gather(*persona_tasks)
 
         # Store as plain dicts for serialisability across state mutations
