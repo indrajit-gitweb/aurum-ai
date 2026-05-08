@@ -9,13 +9,9 @@ from typing import Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langchain_groq import ChatGroq
+from llm.providers.base_provider import RateLimitError, ProviderError
 
 logger = logging.getLogger(__name__)
-
-
-class RateLimitError(Exception):
-    """Raised when the provider returns a 429 rate-limit response."""
-    pass
 
 
 def _to_langchain_messages(messages: list) -> list:

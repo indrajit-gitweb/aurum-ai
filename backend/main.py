@@ -11,6 +11,7 @@ Session-based rate limiting: 3 free analyses per unique session_id.
 Users who supply their own API key bypass the limit.
 """
 
+import asyncio
 import logging
 import os
 import uuid
@@ -268,32 +269,41 @@ async def analyze_websocket(websocket: WebSocket, session_id: str) -> None:
                 pass  # client may have disconnected
 
         graph = TradingGraph()
-        result = await graph.run(
-            ticker=request.ticker,
-            date_range={"start": request.start_date, "end": request.end_date},
-            personas=request.personas,
-            llm_router=llm_router,
-            on_event=on_event,
+        # 4-minute hard timeout — prevents the WebSocket from hanging
+        # indefinitely if an LLM provider or data source stops responding.
+        result = await asyncio.wait_for(
+            graph.run(
+                ticker=request.ticker,
+                date_range={"start": request.start_date, "end": request.end_date},
+                personas=request.personas,
+                llm_router=llm_router,
+                on_event=on_event,
+            ),
+            timeout=240.0,
         )
 
-        # Emit the final result
-        await websocket.send_json(
-            {
-                "type": "final_result",
-                "verdict": result.verdict,
-                "confidence": result.confidence,
-                "target_price": result.target_price,
-                "summary": result.summary,
-                "persona_signals": [s.dict() for s in result.persona_signals],
-                "bull_case": result.bull_case,
-                "bear_case": result.bear_case,
-                "risk_assessment": result.risk_assessment,
-                "key_metrics": result.key_metrics,
-            }
-        )
+        # Emit the final result — use result.dict() which handles all serialisation
+        final_payload = result.dict()
+        final_payload["type"] = "final_result"
+        await websocket.send_json(final_payload)
 
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected: session=%s", session_id)
+    except asyncio.TimeoutError:
+        logger.error("Analysis timed out after 240s: session=%s", session_id)
+        try:
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "message": (
+                        "Analysis timed out (4 minutes). "
+                        "Try selecting fewer personas or providing your own API key "
+                        "for faster inference."
+                    ),
+                }
+            )
+        except Exception:
+            pass
     except Exception as exc:
         logger.exception("Analysis pipeline error for session %s: %s", session_id, exc)
         try:

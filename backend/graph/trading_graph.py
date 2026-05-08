@@ -23,9 +23,15 @@ Pipeline topology (arrows = data dependency, parallel branches run concurrently)
 The graph is implemented as a manual async pipeline (not using the full
 LangGraph StateGraph API) so it works without a LangGraph server.  Each
 "node" is an async function that reads from and writes to ``AurumState``.
+
+IMPORTANT: All synchronous blocking I/O (yfinance, FRED, SEC EDGAR, LLM API
+calls) is wrapped in ``asyncio.to_thread()`` so the event loop is never
+blocked.  This enables genuine concurrency in the gather() calls and keeps
+the WebSocket heartbeat alive throughout the analysis.
 """
 
 import asyncio
+import functools
 import logging
 from typing import Any, Callable, Coroutine, Optional, TypedDict
 
@@ -42,48 +48,8 @@ from dataclasses import dataclass, field
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Persona registry
+# Persona registry (minimal fallback for unknown personas)
 # ─────────────────────────────────────────────────────────────────────────────
-
-PERSONA_PROMPTS: dict[str, str] = {
-    "buffett": (
-        "You are Warren Buffett — value investor focused on economic moats, "
-        "durable competitive advantages, strong brands, predictable free cash flow, "
-        "and management quality.  You prefer to hold forever and hate leverage."
-    ),
-    "burry": (
-        "You are Michael Burry — deep-value contrarian.  You hunt for "
-        "severely undervalued assets, look for hidden balance-sheet value, "
-        "and are willing to bet against consensus when numbers support it."
-    ),
-    "wood": (
-        "You are Cathie Wood — disruptive-innovation investor.  You focus on "
-        "exponential growth potential, TAM expansion, and transformative technology "
-        "over a 5-year horizon.  Traditional valuation multiples matter less than "
-        "adoption curves and platform network effects."
-    ),
-    "lynch": (
-        "You are Peter Lynch — growth-at-a-reasonable-price (GARP) investor. "
-        "You love PEG ratios, strong earnings growth, and companies you can "
-        "understand.  You pay close attention to retail signals and management."
-    ),
-    "dalio": (
-        "You are Ray Dalio — macro and risk-parity thinker.  You analyse the "
-        "debt cycle, central-bank policy, global capital flows, and correlation "
-        "to other assets.  Diversification and risk management are paramount."
-    ),
-    "icahn": (
-        "You are Carl Icahn — activist investor.  You look for undervalued "
-        "companies with lazy balance sheets, poor capital allocation, or weak "
-        "boards.  You consider whether activism (buybacks, spin-offs, M&A) "
-        "can unlock value."
-    ),
-    "simons": (
-        "You are Jim Simons — quantitative fund manager.  You look at "
-        "statistical patterns, momentum, mean-reversion signals, and market "
-        "microstructure.  Fundamentals matter only as one input among many."
-    ),
-}
 
 DEFAULT_PERSONAS = ["buffett", "burry"]
 
@@ -189,7 +155,9 @@ def _safe_llm_invoke(
     task_type: str = "quick",
     fallback: str = "Analysis unavailable.",
 ) -> str:
-    """Call LLMRouter.invoke and return fallback string on any error."""
+    """Call LLMRouter.invoke and return fallback string on any error.
+    NOTE: This is a synchronous function — always call via _async_llm_invoke.
+    """
     try:
         return llm_router.invoke(messages, task_type=task_type)
     except AllProvidersExhaustedError as exc:
@@ -198,6 +166,20 @@ def _safe_llm_invoke(
     except Exception as exc:
         logger.error("LLM invoke error: %s", exc)
         return fallback
+
+
+async def _async_llm_invoke(
+    llm_router: LLMRouter,
+    messages: list[dict],
+    task_type: str = "quick",
+    fallback: str = "Analysis unavailable.",
+) -> str:
+    """Async wrapper: runs the synchronous LLM call in a thread pool so
+    the asyncio event loop is never blocked.
+    """
+    return await asyncio.to_thread(
+        _safe_llm_invoke, llm_router, messages, task_type, fallback
+    )
 
 
 def _fmt_fundamentals(f: dict) -> str:
@@ -321,7 +303,7 @@ def _verdict_from_signals(signals: list[PersonaSignalDict]) -> tuple[str, int]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Pipeline nodes
+# Pipeline nodes — all blocking I/O runs in asyncio.to_thread()
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _node_data_fetch(state: AurumState, on_event: Callable) -> None:
@@ -334,7 +316,10 @@ async def _node_data_fetch(state: AurumState, on_event: Callable) -> None:
         }
     )
     yf_client = YFinanceClient(state["ticker"])
-    df = yf_client.get_price_history(state["start_date"], state["end_date"])
+    # Run blocking yfinance call in thread pool so event loop stays free
+    df = await asyncio.to_thread(
+        yf_client.get_price_history, state["start_date"], state["end_date"]
+    )
     state["price_history"] = df
     await on_event(
         {
@@ -354,16 +339,30 @@ async def _node_fundamentals(state: AurumState, on_event: Callable) -> None:
         }
     )
     yf = YFinanceClient(state["ticker"])
-    state["fundamentals"] = yf.get_fundamentals()
-    state["balance_sheet"] = yf.get_balance_sheet()
-    state["income_statement"] = yf.get_income_statement()
-    state["cashflow"] = yf.get_cashflow()
 
-    # SEC EDGAR facts
+    # Run all four yfinance fundamental calls concurrently in thread pool
+    fundamentals, balance_sheet, income_statement, cashflow = await asyncio.gather(
+        asyncio.to_thread(yf.get_fundamentals),
+        asyncio.to_thread(yf.get_balance_sheet),
+        asyncio.to_thread(yf.get_income_statement),
+        asyncio.to_thread(yf.get_cashflow),
+    )
+    state["fundamentals"] = fundamentals
+    state["balance_sheet"] = balance_sheet
+    state["income_statement"] = income_statement
+    state["cashflow"] = cashflow
+
+    # SEC EDGAR facts — also in thread pool
     try:
         sec = SECEdgarClient(state["ticker"])
-        state["sec_facts"] = sec.get_company_facts()
-        state["sec_filings"] = sec.get_recent_filings(form_type="10-K", limit=3)
+        sec_facts, sec_filings = await asyncio.gather(
+            asyncio.to_thread(sec.get_company_facts),
+            asyncio.to_thread(
+                functools.partial(sec.get_recent_filings, form_type="10-K", limit=3)
+            ),
+        )
+        state["sec_facts"] = sec_facts
+        state["sec_filings"] = sec_filings
     except Exception as exc:
         logger.warning("SEC EDGAR fetch failed: %s", exc)
         state["sec_facts"] = {}
@@ -387,8 +386,12 @@ async def _node_technical(state: AurumState, on_event: Callable) -> None:
         }
     )
     yf = YFinanceClient(state["ticker"])
-    state["technical_indicators"] = yf.get_technical_indicators(
-        start=state["start_date"], end=state["end_date"]
+    state["technical_indicators"] = await asyncio.to_thread(
+        functools.partial(
+            yf.get_technical_indicators,
+            start=state["start_date"],
+            end=state["end_date"],
+        )
     )
     await on_event(
         {
@@ -408,7 +411,7 @@ async def _node_news(state: AurumState, on_event: Callable) -> None:
         }
     )
     yf = YFinanceClient(state["ticker"])
-    state["news"] = yf.get_news(limit=10)
+    state["news"] = await asyncio.to_thread(functools.partial(yf.get_news, limit=10))
     await on_event(
         {
             "type": "agent_progress",
@@ -427,8 +430,13 @@ async def _node_macro(state: AurumState, on_event: Callable) -> None:
         }
     )
     fred = FREDClient()
-    state["macro_summary"] = fred.get_macro_summary()
-    state["yield_curve"] = fred.get_yield_curve()
+    # Run both FRED calls concurrently in thread pool
+    macro_summary, yield_curve = await asyncio.gather(
+        asyncio.to_thread(fred.get_macro_summary),
+        asyncio.to_thread(fred.get_yield_curve),
+    )
+    state["macro_summary"] = macro_summary
+    state["yield_curve"] = yield_curve
     await on_event(
         {
             "type": "agent_progress",
@@ -471,8 +479,13 @@ async def _node_persona(
                 "news": state.get("news", []),
                 "macro_summary": state.get("macro_summary", ""),
                 "sec_facts": state.get("sec_facts", {}),
+                # Include field aliases that some agents expect
+                "key_metrics": state.get("technical_indicators", {}),
+                "cash_flow": state.get("cashflow", {}),
+                "company_info": state.get("fundamentals", {}),
             }
-            result = agent.analyze(state["ticker"], data)
+            # Run the synchronous analyze() in a thread pool
+            result = await asyncio.to_thread(agent.analyze, state["ticker"], data)
             signal = result.signal
             confidence = result.confidence
             reasoning = result.reasoning
@@ -539,7 +552,7 @@ async def _node_debate_bull(
         },
     ]
 
-    bull_case = _safe_llm_invoke(llm_router, messages, task_type="quick")
+    bull_case = await _async_llm_invoke(llm_router, messages, task_type="quick")
     state["bull_arguments"] = [bull_case]
 
     await on_event({"type": "debate_message", "side": "bull", "message": bull_case})
@@ -587,7 +600,7 @@ async def _node_debate_bear(
         },
     ]
 
-    bear_case = _safe_llm_invoke(llm_router, messages, task_type="quick")
+    bear_case = await _async_llm_invoke(llm_router, messages, task_type="quick")
     state["bear_arguments"] = [bear_case]
 
     await on_event({"type": "debate_message", "side": "bear", "message": bear_case})
@@ -638,7 +651,7 @@ async def _node_research_manager(
         },
     ]
 
-    synthesis = _safe_llm_invoke(llm_router, messages, task_type="deep")
+    synthesis = await _async_llm_invoke(llm_router, messages, task_type="deep")
     state["research_synthesis"] = synthesis
 
     await on_event(
@@ -694,7 +707,7 @@ async def _node_risk(
         },
     ]
 
-    view = _safe_llm_invoke(llm_router, messages, task_type="quick")
+    view = await _async_llm_invoke(llm_router, messages, task_type="quick")
     state[f"{profile}_view"] = view  # type: ignore[literal-required]
 
     await on_event(
@@ -769,7 +782,9 @@ async def _node_portfolio_manager(
         },
     ]
 
-    pm_text = _safe_llm_invoke(llm_router, messages, task_type="quick", fallback="{}")
+    pm_text = await _async_llm_invoke(
+        llm_router, messages, task_type="quick", fallback="{}"
+    )
 
     # Parse PM output, fall back to quantitative verdict on parse error
     import json, re as _re
@@ -894,6 +909,8 @@ class TradingGraph:
         await _node_data_fetch(state, on_event)
 
         # ── 2. Parallel data collection ───────────────────────────────────────
+        # All four nodes run concurrently; each uses asyncio.to_thread internally
+        # so blocking HTTP calls don't stall the event loop.
         await asyncio.gather(
             _node_fundamentals(state, on_event),
             _node_technical(state, on_event),
@@ -902,6 +919,7 @@ class TradingGraph:
         )
 
         # ── 3. Parallel persona analysis ──────────────────────────────────────
+        # Each persona runs its LLM call in a thread pool concurrently.
         persona_tasks = [
             _node_persona(pid, state, llm_router, on_event)
             for pid in valid_personas
