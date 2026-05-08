@@ -786,7 +786,7 @@ async def _node_research_manager(
             ]
             synthesis = await _async_llm_invoke(
                 llm_router, messages,
-                task_type="quick",   # ← use quick chain as it has more headroom
+                task_type="deep",   # Research Manager always uses the best reasoning model
                 fallback="Synthesis unavailable — rate limits hit. Core verdict derived from persona vote.",
             )
 
@@ -1060,14 +1060,17 @@ class TradingGraph:
         )
 
         # ── 3. Rate-throttled persona analysis ───────────────────────────────
-        # A semaphore of 2 ensures at most 2 LLM calls fire simultaneously.
-        # Without this, all N personas fire at once and exhaust every provider's
-        # free-tier rate limit before the second persona gets a response.
-        _persona_sem = asyncio.Semaphore(2)
+        # Semaphore(1) forces personas to run fully sequentially — one at a time.
+        # This prevents burst exhaustion of all free-tier providers simultaneously.
+        # With 2+, the last few personas in a large selection still hit rate limits
+        # because earlier pairs have already drained per-minute quotas across all providers.
+        _persona_sem = asyncio.Semaphore(1)
 
         async def _throttled_persona(pid: str) -> PersonaSignalDict:
             async with _persona_sem:
-                return await _node_persona(pid, state, llm_router, on_event)
+                result = await _node_persona(pid, state, llm_router, on_event)
+                await asyncio.sleep(0.5)   # brief gap so provider quotas can breathe
+                return result
 
         persona_tasks = [_throttled_persona(pid) for pid in valid_personas]
         persona_results: list[PersonaSignalDict] = await asyncio.gather(*persona_tasks)
