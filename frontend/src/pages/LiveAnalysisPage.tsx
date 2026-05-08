@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { CheckCircle, Loader, TrendingUp, TrendingDown, Minus, Download, RefreshCw, AlertCircle } from 'lucide-react'
+import { CheckCircle, Loader, TrendingUp, TrendingDown, Minus, Download, RefreshCw, AlertCircle, ChevronsDown } from 'lucide-react'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { PERSONAS, VERDICT_CONFIG } from '@/lib/constants'
 import type { WSEvent, FinalResult } from '@/hooks/useWebSocket'
@@ -9,22 +9,20 @@ import type { WSEvent, FinalResult } from '@/hooks/useWebSocket'
 // ─── Agent Status ──────────────────────────────────────────────────────────────
 type AgentStatus = 'pending' | 'running' | 'complete'
 
+// Fun labels for personas not selected for this analysis
+const NOT_SELECTED_LABELS = [
+  'On Holiday ✈', 'Off Duty', 'On Leave', 'Not in Session', 'Benched', 'Away'
+] as const
+
 interface AgentState {
   id: string
   name: string
   initials: string
   status: AgentStatus
+  isSelected: boolean          // was this persona chosen for this run?
+  notSelectedLabel: string     // fun label when not selected
   signal?: 'BULLISH' | 'BEARISH' | 'NEUTRAL'
   summary?: string
-}
-
-function buildInitialAgents(): AgentState[] {
-  return PERSONAS.map((p) => ({
-    id: p.id,
-    name: p.name,
-    initials: p.initials,
-    status: 'pending' as AgentStatus,
-  }))
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -91,7 +89,11 @@ function AgentTimelineItem({ agent, isLast }: { agent: AgentState; isLast: boole
         ) : (
           <div
             className="w-10 h-10 rounded-full flex items-center justify-center font-cinzel font-bold text-xs"
-            style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.3)' }}
+            style={{
+              background: agent.isSelected ? 'rgba(255,255,255,0.03)' : 'transparent',
+              border: agent.isSelected ? '1px solid rgba(255,255,255,0.08)' : '1px dashed rgba(255,255,255,0.06)',
+              color: agent.isSelected ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.12)',
+            }}
           >
             {agent.initials}
           </div>
@@ -140,8 +142,13 @@ function AgentTimelineItem({ agent, isLast }: { agent: AgentState; isLast: boole
             {agent.summary.slice(0, 120)}{agent.summary.length > 120 ? '…' : ''}
           </motion.p>
         )}
-        {agent.status === 'pending' && (
-          <p className="font-raleway text-xs" style={{ color: 'rgba(255,255,255,0.2)' }}>Queued</p>
+        {agent.status === 'pending' && agent.isSelected && (
+          <p className="font-raleway text-xs" style={{ color: 'rgba(201,168,76,0.35)' }}>Awaiting turn…</p>
+        )}
+        {agent.status === 'pending' && !agent.isSelected && (
+          <p className="font-raleway text-xs italic" style={{ color: 'rgba(255,255,255,0.15)' }}>
+            {agent.notSelectedLabel}
+          </p>
         )}
       </div>
     </div>
@@ -158,10 +165,32 @@ interface ThoughtLine {
 
 function ThoughtStream({ lines, isConnected }: { lines: ThoughtLine[]; isConnected: boolean }) {
   const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [autoScroll, setAutoScroll] = useState(true)
+  const [showScrollBtn, setShowScrollBtn] = useState(false)
 
+  // Auto-scroll to bottom when new lines arrive (only if autoScroll is on)
   useEffect(() => {
+    if (autoScroll) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [lines.length, autoScroll])
+
+  // Detect when user scrolls up — disable auto-scroll and show jump button
+  const handleScroll = () => {
+    const el = scrollRef.current
+    if (!el) return
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    const userScrolledUp = distanceFromBottom > 80
+    setAutoScroll(!userScrolledUp)
+    setShowScrollBtn(userScrolledUp)
+  }
+
+  const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [lines.length])
+    setAutoScroll(true)
+    setShowScrollBtn(false)
+  }
 
   const typeColor: Record<string, string> = {
     agent_start:    '#FFD700',
@@ -179,7 +208,7 @@ function ThoughtStream({ lines, isConnected }: { lines: ThoughtLine[]; isConnect
 
   return (
     <div
-      className="h-full flex flex-col"
+      className="h-full flex flex-col relative"
       style={{ background: '#080808', border: '1px solid rgba(201,168,76,0.12)', fontFamily: "'Courier New', monospace" }}
     >
       {/* Terminal header */}
@@ -197,19 +226,36 @@ function ThoughtStream({ lines, isConnected }: { lines: ThoughtLine[]; isConnect
             Live Feed
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          <div
-            className="w-2 h-2 rounded-full"
-            style={{ background: isConnected ? '#22c55e' : '#ef4444', boxShadow: isConnected ? '0 0 6px #22c55e' : '0 0 6px #ef4444' }}
-          />
-          <span className="font-raleway text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>
-            {isConnected ? 'Connected' : 'Disconnected'}
-          </span>
+        <div className="flex items-center gap-3">
+          {/* Scroll-to-bottom hint when auto-scroll is off */}
+          {showScrollBtn && (
+            <button
+              onClick={scrollToBottom}
+              className="flex items-center gap-1 font-raleway text-xs px-2 py-0.5 transition-all duration-200"
+              style={{ color: '#C9A84C', border: '1px solid rgba(201,168,76,0.3)', background: 'rgba(201,168,76,0.08)' }}
+            >
+              <ChevronsDown size={11} />
+              Latest
+            </button>
+          )}
+          <div className="flex items-center gap-2">
+            <div
+              className="w-2 h-2 rounded-full"
+              style={{ background: isConnected ? '#22c55e' : '#ef4444', boxShadow: isConnected ? '0 0 6px #22c55e' : '0 0 6px #ef4444' }}
+            />
+            <span className="font-raleway text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>
+              {isConnected ? 'Connected' : 'Disconnected'}
+            </span>
+          </div>
         </div>
       </div>
 
       {/* Scrollable log */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-1">
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto p-4 space-y-1"
+      >
         {lines.length === 0 && (
           <p style={{ color: 'rgba(201,168,76,0.3)' }} className="text-xs animate-pulse">
             {'>'} Awaiting analysis stream...
@@ -487,7 +533,36 @@ export default function LiveAnalysisPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
   const { events, isConnected, isComplete, finalResult, error: wsError } = useWebSocket(sessionId || null)
 
-  const [agents, setAgents] = useState<AgentState[]>(buildInitialAgents())
+  // ── Read which personas were selected (stored by AnalyserPage) ────────────
+  const [selectedPersonaIds] = useState<Set<string>>(() => {
+    if (!sessionId) return new Set<string>()
+    try {
+      const stored = sessionStorage.getItem(`personas_${sessionId}`)
+      if (stored) {
+        const arr = JSON.parse(stored) as string[]
+        if (arr.length > 0) return new Set(arr)
+      }
+    } catch { /* ignore */ }
+    return new Set<string>()  // empty = treat all as selected
+  })
+
+  const selectedPersonaCount = selectedPersonaIds.size || PERSONAS.length
+
+  // ── Build agent list — all 15 shown, unselected get a fun "not in action" label
+  const [agents, setAgents] = useState<AgentState[]>(() =>
+    PERSONAS.map((p, i) => {
+      const isSelected = selectedPersonaIds.size === 0 || selectedPersonaIds.has(p.id)
+      return {
+        id: p.id,
+        name: p.name,
+        initials: p.initials,
+        status: 'pending' as AgentStatus,
+        isSelected,
+        notSelectedLabel: NOT_SELECTED_LABELS[i % NOT_SELECTED_LABELS.length],
+      }
+    })
+  )
+
   const [thoughtLines, setThoughtLines] = useState<ThoughtLine[]>([])
   const [bullLines, setBullLines] = useState<string[]>([])
   const [bearLines, setBearLines] = useState<string[]>([])
@@ -504,19 +579,6 @@ export default function LiveAnalysisPage() {
       sessionStorage.getItem('last_ticker') ||
       'STOCK'
     )
-  })
-
-  // BUG-14 fix: use actual selected persona count, not total PERSONAS.length (15)
-  const [selectedPersonaCount] = useState<number>(() => {
-    if (!sessionId) return PERSONAS.length
-    try {
-      const stored = sessionStorage.getItem(`personas_${sessionId}`)
-      if (stored) {
-        const arr = JSON.parse(stored) as string[]
-        return arr.length > 0 ? arr.length : PERSONAS.length
-      }
-    } catch { /* ignore */ }
-    return PERSONAS.length
   })
 
   // ── Process incoming WebSocket events ────────────────────────────────────────
@@ -654,11 +716,11 @@ export default function LiveAnalysisPage() {
           </div>
         )}
 
-        {/* Two-column layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6" style={{ minHeight: '65vh' }}>
-          {/* Left — Agent Timeline */}
-          <div className="lg:col-span-2 overflow-y-auto" style={{ maxHeight: '70vh' }}>
-            <div className="p-5" style={{ background: '#0d0d0d', border: '1px solid rgba(201,168,76,0.1)' }}>
+        {/* Two-column layout — both columns locked to the same 70 vh height */}
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start" style={{ height: '70vh' }}>
+          {/* Left — Agent Timeline (scrollable) */}
+          <div className="lg:col-span-2 overflow-y-auto" style={{ height: '70vh', background: '#0d0d0d', border: '1px solid rgba(201,168,76,0.1)' }}>
+            <div className="p-5">
               <p className="font-cinzel text-xs font-semibold tracking-widest uppercase mb-6" style={{ color: 'rgba(201,168,76,0.6)' }}>
                 Analyst Progress
               </p>
@@ -669,8 +731,8 @@ export default function LiveAnalysisPage() {
             </div>
           </div>
 
-          {/* Right — Thought Stream */}
-          <div className="lg:col-span-3" style={{ minHeight: '400px' }}>
+          {/* Right — Thought Stream (fills same height via h-full inside ThoughtStream) */}
+          <div className="lg:col-span-3" style={{ height: '70vh' }}>
             <ThoughtStream lines={thoughtLines} isConnected={isConnected} />
           </div>
         </div>
