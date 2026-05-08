@@ -10,7 +10,7 @@ from typing import Optional
 
 from openai import OpenAI, RateLimitError as OpenAIRateLimitError
 
-from llm.providers.base_provider import RateLimitError  # BUG-09 fix: use shared class
+from llm.providers.base_provider import RateLimitError, ProviderError  # BUG-09 fix: use shared class
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,17 @@ class OpenRouterClient:
     """
 
     DEFAULT_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
-    DEEP_MODEL = "google/gemma-2-9b-it:free"
+
+    # Ordered list of free deep-task models.  invoke_deep() tries them in order,
+    # skipping any that return 404 (model no longer hosted on OpenRouter).
+    DEEP_MODELS: list[str] = [
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "qwen/qwen3-14b:free",
+        "google/gemma-3-27b-it:free",
+        "deepseek/deepseek-r1-0528:free",
+        "mistralai/mistral-7b-instruct:free",
+        "meta-llama/llama-3.1-8b-instruct:free",  # last resort: same as quick
+    ]
 
     def __init__(self, api_key: str) -> None:
         if not api_key:
@@ -83,15 +93,24 @@ class OpenRouterClient:
             logger.warning("OpenRouter rate limit hit for model %s: %s", model, exc)
             raise RateLimitError(f"OpenRouter rate limit exceeded: {exc}") from exc
         except Exception as exc:
-            exc_str = str(exc).lower()
-            if "429" in exc_str or "rate limit" in exc_str or "rate_limit" in exc_str:
+            exc_str = str(exc)
+            exc_lower = exc_str.lower()
+            if "429" in exc_str or "rate limit" in exc_lower or "rate_limit" in exc_lower:
                 logger.warning("OpenRouter rate limit hit for model %s: %s", model, exc)
                 raise RateLimitError(f"OpenRouter rate limit exceeded: {exc}") from exc
+            # 404 = model no longer hosted on OpenRouter → provider error (triggers router fallback)
+            if "404" in exc_str or "no endpoints found" in exc_lower or "not found" in exc_lower:
+                logger.warning("OpenRouter model %s unavailable (404): %s", model, exc)
+                raise ProviderError(f"OpenRouter model not found ({model}): {exc}") from exc
             logger.error("OpenRouter invocation error (model=%s): %s", model, exc)
-            raise
+            raise ProviderError(f"OpenRouter error: {exc}") from exc
 
     def invoke_deep(self, messages: list) -> str:
-        """Invoke the deeper free model (Gemma-2 9B).
+        """Invoke the best available free deep model with automatic fallback.
+
+        Tries DEEP_MODELS in order, skipping models that are no longer hosted
+        on OpenRouter (404 ProviderError).  Propagates RateLimitError immediately
+        so the router can try the next provider in the chain.
 
         Args:
             messages: List of message dicts or LangChain messages.
@@ -100,6 +119,21 @@ class OpenRouterClient:
             The assistant's response as a plain string.
 
         Raises:
-            RateLimitError: If the API returns a 429 error.
+            RateLimitError: If a rate-limit is hit (propagates to LLMRouter).
+            ProviderError: If all deep models are unavailable.
         """
-        return self.invoke(messages, model=self.DEEP_MODEL)
+        last_exc: Optional[Exception] = None
+        for model in self.DEEP_MODELS:
+            try:
+                result = self.invoke(messages, model=model)
+                logger.debug("OpenRouter deep: success via '%s'.", model)
+                return result
+            except RateLimitError:
+                raise   # router handles rate limits
+            except ProviderError as exc:
+                logger.warning("OpenRouter deep: model '%s' unavailable, trying next.", model)
+                last_exc = exc
+                continue
+        raise ProviderError(
+            f"OpenRouter: all {len(self.DEEP_MODELS)} deep models exhausted. Last: {last_exc}"
+        )

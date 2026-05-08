@@ -1,19 +1,34 @@
 import { useState, useEffect } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Menu, X } from 'lucide-react'
 
 const NAV_LINKS = [
-  { label: 'Home', path: '/' },
+  { label: 'Home',     path: '/'         },
   { label: 'Analyser', path: '/analyser' },
-  { label: 'History', path: '/history' },
-  { label: 'About', path: '#about' },
+  { label: 'History',  path: '/history'  },
 ]
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const location = useLocation()
+  const navigate = useNavigate()
+
+  /** Scroll to #about on homepage, or navigate there first if on another page */
+  const handleAboutClick = (e: React.MouseEvent) => {
+    e.preventDefault()
+    setMenuOpen(false)
+    if (location.pathname === '/') {
+      document.getElementById('about')?.scrollIntoView({ behavior: 'smooth' })
+    } else {
+      navigate('/')
+      // Give the page a tick to mount before scrolling
+      setTimeout(() => {
+        document.getElementById('about')?.scrollIntoView({ behavior: 'smooth' })
+      }, 150)
+    }
+  }
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 50)
@@ -63,26 +78,29 @@ export default function Navbar() {
                   {link.label}
                 </span>
                 <span
-                  className="absolute -bottom-1 left-0 h-px bg-gold transition-all duration-300"
-                  style={{ width: isActive ? '100%' : '0%' }}
-                />
-                <span
                   className="absolute -bottom-1 left-0 h-px bg-gold transition-all duration-300 group-hover:w-full"
                   style={{ width: isActive ? '100%' : '0%' }}
                 />
               </Link>
             )
           })}
-          <Link
-            to="/history"
-            className="font-raleway text-sm font-medium tracking-wider px-5 py-2 border transition-all duration-300 hover:bg-gold hover:text-black"
-            style={{
-              borderColor: 'rgba(201,168,76,0.5)',
-              color: '#C9A84C',
-            }}
+          {/* About — scrolls to section on homepage, navigates + scrolls otherwise */}
+          <button
+            onClick={handleAboutClick}
+            className="relative font-raleway text-sm font-medium tracking-wider group"
+            style={{ color: 'rgba(255,255,255,0.7)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
             data-hover
           >
-            History
+            <span className="group-hover:text-white transition-colors duration-200">About</span>
+            <span className="absolute -bottom-1 left-0 h-px bg-gold transition-all duration-300 group-hover:w-full" style={{ width: '0%' }} />
+          </button>
+          <Link
+            to="/analyser"
+            className="font-raleway text-sm font-medium tracking-wider px-5 py-2 border transition-all duration-300 hover:bg-gold hover:text-black"
+            style={{ borderColor: 'rgba(201,168,76,0.5)', color: '#C9A84C' }}
+            data-hover
+          >
+            Analyse →
           </Link>
         </nav>
 
@@ -118,12 +136,20 @@ export default function Navbar() {
                   {link.label}
                 </Link>
               ))}
+              <button
+                onClick={handleAboutClick}
+                className="font-raleway text-sm tracking-wider text-white/70 hover:text-gold transition-colors duration-200 py-2 text-left"
+                style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                data-hover
+              >
+                About
+              </button>
               <Link
-                to="/history"
+                to="/analyser"
                 className="font-raleway text-sm font-medium tracking-wider px-5 py-3 border border-gold/50 text-gold text-center"
                 data-hover
               >
-                History
+                Analyse a Stock →
               </Link>
             </div>
           </motion.div>

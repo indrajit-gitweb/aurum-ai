@@ -429,17 +429,45 @@ function FreePromiseSection() {
 }
 
 // ─── Section 6: About ───────────────────────────────────────────────────────────
+const PIPELINE_STEPS_ABOUT = [
+  { num: '01', title: 'You enter a ticker',  desc: 'Type any stock symbol — US, UK, Indian (.NS / .BO), or any global market supported by Yahoo Finance.' },
+  { num: '02', title: 'Data is fetched',     desc: 'Price history, financials, balance sheet, cash flow, SEC filings, macro indicators (FRED), and the latest news headlines are pulled in parallel.' },
+  { num: '03', title: '15 AI minds analyse', desc: 'Each persona runs its own specialist LLM call — DCF for Damodaran, scuttlebutt for Fisher, tail-risk for Taleb, macro setup for Druckenmiller, and so on.' },
+  { num: '04', title: 'Bull vs Bear debate', desc: 'The bullish and bearish personas argue their cases. A Research Manager reads both sides, scores conviction, and recommends a position size.' },
+  { num: '05', title: 'Verdict is issued',   desc: 'A Portfolio Manager agent synthesises the signals into a STRONG BUY / BUY / HOLD / SELL / STRONG SELL verdict with a target price and confidence score.' },
+]
+
+const WHY_BUILT = [
+  {
+    title: 'Retail investors deserve institutional-grade analysis',
+    body:  'Hedge funds have floors of analysts running DCF models, reading SEC filings, tracking macro regimes. Retail investors have a Bloomberg terminal they cannot afford. AURUM closes that gap.',
+  },
+  {
+    title: 'One perspective is never enough',
+    body:  'A value investor and a momentum trader see the same stock completely differently. AURUM forces every angle — growth, value, macro, tail risk, news sentiment — into the same room so you see the full picture.',
+  },
+  {
+    title: 'AI should debate, not just answer',
+    body:  'Most AI tools give you one opinion. AURUM runs a structured debate. You see where analysts disagree, how strong each case is, and what you\'re betting on when you take a position.',
+  },
+]
+
 function AboutSection() {
   const ref = useRef<HTMLDivElement>(null)
-  const inView = useInView(ref, { once: true, margin: '-80px' })
+  const pipelineRef = useRef<HTMLDivElement>(null)
+  const whyRef = useRef<HTMLDivElement>(null)
+  const inView = useInView(ref, { once: true, margin: '-60px' })
+  const pipelineInView = useInView(pipelineRef, { once: true, margin: '-60px' })
+  const whyInView = useInView(whyRef, { once: true, margin: '-60px' })
 
   return (
     <section
       id="about"
-      className="relative py-32 px-6"
+      className="relative px-6"
       style={{ background: '#080808', borderTop: '1px solid rgba(201,168,76,0.08)' }}
     >
-      <div className="max-w-5xl mx-auto" ref={ref}>
+      {/* ── Part 1: What is AURUM ─────────────────────────────────────────── */}
+      <div className="py-28 max-w-7xl mx-auto" ref={ref}>
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={inView ? { opacity: 1, y: 0 } : {}}
@@ -447,68 +475,172 @@ function AboutSection() {
           className="text-center mb-16"
         >
           <p className="font-raleway text-xs tracking-[0.4em] uppercase mb-4" style={{ color: '#C9A84C' }}>
-            About
+            About AURUM AI
           </p>
           <h2 className="font-cinzel font-bold text-white" style={{ fontSize: 'clamp(2rem, 4vw, 3.5rem)' }}>
-            What is AURUM AI?
+            Your Private Hedge Fund. Free.
           </h2>
           <GoldDivider className="max-w-xs mx-auto mt-6" delay={0.2} />
         </motion.div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-14 items-start">
           <motion.div
-            initial={{ opacity: 0, x: -30 }}
+            initial={{ opacity: 0, x: -20 }}
             animate={inView ? { opacity: 1, x: 0 } : {}}
             transition={{ duration: 0.7, delay: 0.15 }}
           >
-            <p className="font-cormorant text-xl font-light leading-relaxed mb-6" style={{ color: 'rgba(255,255,255,0.7)' }}>
-              AURUM AI brings the analytical firepower of Wall Street's greatest investors to anyone
-              with a ticker symbol and an internet connection.
+            <p className="font-cormorant text-2xl font-light leading-relaxed mb-7" style={{ color: 'rgba(255,255,255,0.8)' }}>
+              AURUM AI gives any investor access to the combined analytical frameworks of the fifteen
+              greatest investors in history — simultaneously, in real time, for free.
             </p>
-            <p className="font-raleway text-sm leading-relaxed mb-5" style={{ color: 'rgba(255,255,255,0.5)' }}>
-              Each analysis runs 15 distinct AI personas — modelled on legendary investors like Warren Buffett,
-              Nassim Taleb, Aswath Damodaran and Stanley Druckenmiller — who argue, debate, and reach a
-              consensus verdict in real time.
+            <p className="font-raleway text-sm leading-relaxed mb-5" style={{ color: 'rgba(255,255,255,0.55)' }}>
+              When you type a ticker, fifteen distinct AI minds — each deeply modelled on a different
+              investing legend — independently analyse the stock from their own angle. Warren Buffett
+              checks the moat. Nassim Taleb stress-tests for black swans. Aswath Damodaran runs a
+              full DCF. Rakesh Jhunjhunwala evaluates the emerging-market growth story.
             </p>
-            <p className="font-raleway text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.5)' }}>
-              The platform is entirely free, open-source, and runs on a multi-LLM fallback engine
-              (Groq → Cerebras → SambaNova → Gemini → OpenRouter) so it stays online even when
-              individual providers hit rate limits.
+            <p className="font-raleway text-sm leading-relaxed mb-5" style={{ color: 'rgba(255,255,255,0.55)' }}>
+              Their signals feed into a structured bull-vs-bear debate, overseen by a Research Manager
+              who scores conviction and recommends a position size. A Portfolio Manager then issues
+              the final verdict: STRONG BUY, BUY, HOLD, SELL, or STRONG SELL.
+            </p>
+            <p className="font-raleway text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.55)' }}>
+              The entire pipeline — data fetching, LLM analysis, debate, synthesis — runs in about
+              60-120 seconds, streamed live to your screen.
             </p>
           </motion.div>
 
           <motion.div
-            initial={{ opacity: 0, x: 30 }}
+            initial={{ opacity: 0, x: 20 }}
             animate={inView ? { opacity: 1, x: 0 } : {}}
             transition={{ duration: 0.7, delay: 0.25 }}
-            className="space-y-4"
           >
             {[
-              { label: 'Built on', value: 'FastAPI + React 18 + LangGraph-style pipeline' },
-              { label: 'Data sources', value: 'Yahoo Finance · FRED · SEC EDGAR' },
-              { label: 'LLM providers', value: 'Groq · Cerebras · SambaNova · Gemini · OpenRouter' },
-              { label: 'Personas', value: '15 legendary investor archetypes' },
-              { label: 'Cost', value: 'Free forever — BYOK for unlimited runs' },
-              { label: 'Open source', value: 'MIT License · GitHub' },
+              { label: 'Analyst personas',  value: '15 legendary investor archetypes' },
+              { label: 'Data sources',      value: 'Yahoo Finance · FRED (macro) · SEC EDGAR (filings)' },
+              { label: 'LLM engine',        value: 'Groq · Cerebras · SambaNova · Gemini · OpenRouter (auto-fallback)' },
+              { label: 'Supported markets', value: 'NYSE · NASDAQ · LSE · NSE/BSE (add .NS / .BO) · Global' },
+              { label: 'Stack',             value: 'FastAPI + WebSockets · React 18 · LangGraph-style pipeline' },
+              { label: 'Cost',              value: 'Free forever — add your own API key for unlimited runs' },
+              { label: 'Open source',       value: 'MIT License · full source on GitHub' },
             ].map((item, i) => (
               <motion.div
                 key={item.label}
-                initial={{ opacity: 0, y: 10 }}
+                initial={{ opacity: 0, y: 8 }}
                 animate={inView ? { opacity: 1, y: 0 } : {}}
-                transition={{ duration: 0.4, delay: 0.3 + i * 0.08 }}
+                transition={{ duration: 0.4, delay: 0.3 + i * 0.07 }}
                 className="flex items-start gap-4 py-3"
                 style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
               >
-                <span className="font-raleway text-xs tracking-widest uppercase shrink-0 pt-0.5 w-28" style={{ color: 'rgba(201,168,76,0.6)' }}>
+                <span className="font-raleway text-xs tracking-widest uppercase shrink-0 pt-0.5 w-36" style={{ color: 'rgba(201,168,76,0.65)' }}>
                   {item.label}
                 </span>
-                <span className="font-raleway text-sm" style={{ color: 'rgba(255,255,255,0.6)' }}>
+                <span className="font-raleway text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.6)' }}>
                   {item.value}
                 </span>
               </motion.div>
             ))}
           </motion.div>
         </div>
+      </div>
+
+      <GoldDivider className="max-w-7xl mx-auto" />
+
+      {/* ── Part 2: How It Analyses ───────────────────────────────────────── */}
+      <div className="py-28 max-w-7xl mx-auto" ref={pipelineRef}>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={pipelineInView ? { opacity: 1, y: 0 } : {}}
+          transition={{ duration: 0.6 }}
+          className="text-center mb-16"
+        >
+          <p className="font-raleway text-xs tracking-[0.4em] uppercase mb-4" style={{ color: '#C9A84C' }}>
+            Under the Hood
+          </p>
+          <h3 className="font-cinzel font-bold text-white" style={{ fontSize: 'clamp(1.8rem, 3vw, 2.8rem)' }}>
+            How an Analysis Runs
+          </h3>
+        </motion.div>
+
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-0 relative">
+          <div
+            className="hidden md:block absolute top-9 left-[10%] right-[10%] h-px"
+            style={{ background: 'linear-gradient(90deg, transparent, rgba(201,168,76,0.25), rgba(201,168,76,0.25), transparent)' }}
+          />
+          {PIPELINE_STEPS_ABOUT.map((step, i) => (
+            <motion.div
+              key={step.num}
+              initial={{ opacity: 0, y: 30 }}
+              animate={pipelineInView ? { opacity: 1, y: 0 } : {}}
+              transition={{ duration: 0.6, delay: i * 0.12 }}
+              className="relative flex flex-col items-center text-center px-4 py-6"
+            >
+              <div
+                className="relative z-10 w-16 h-16 flex items-center justify-center mb-5 font-cinzel font-bold text-lg"
+                style={{
+                  background: 'rgba(201,168,76,0.08)',
+                  border: '1px solid rgba(201,168,76,0.35)',
+                  color: '#FFD700',
+                }}
+              >
+                {step.num}
+              </div>
+              <h4 className="font-cinzel font-semibold text-white text-sm mb-2">{step.title}</h4>
+              <p className="font-raleway text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.45)' }}>{step.desc}</p>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+
+      <GoldDivider className="max-w-7xl mx-auto" />
+
+      {/* ── Part 3: Why It Was Built ──────────────────────────────────────── */}
+      <div className="py-28 max-w-7xl mx-auto" ref={whyRef}>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={whyInView ? { opacity: 1, y: 0 } : {}}
+          transition={{ duration: 0.6 }}
+          className="text-center mb-16"
+        >
+          <p className="font-raleway text-xs tracking-[0.4em] uppercase mb-4" style={{ color: '#C9A84C' }}>
+            The Why
+          </p>
+          <h3 className="font-cinzel font-bold text-white" style={{ fontSize: 'clamp(1.8rem, 3vw, 2.8rem)' }}>
+            Why AURUM Was Built
+          </h3>
+        </motion.div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {WHY_BUILT.map((item, i) => (
+            <motion.div
+              key={item.title}
+              initial={{ opacity: 0, y: 24 }}
+              animate={whyInView ? { opacity: 1, y: 0 } : {}}
+              transition={{ duration: 0.6, delay: i * 0.12 }}
+              className="p-8"
+              style={{ background: '#111', border: '1px solid rgba(201,168,76,0.1)' }}
+            >
+              <div className="w-8 h-px mb-6" style={{ background: '#C9A84C' }} />
+              <h4 className="font-cinzel font-semibold text-white text-base mb-4">{item.title}</h4>
+              <p className="font-raleway text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.5)' }}>{item.body}</p>
+            </motion.div>
+          ))}
+        </div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={whyInView ? { opacity: 1, y: 0 } : {}}
+          transition={{ duration: 0.6, delay: 0.4 }}
+          className="mt-12 p-8 text-center"
+          style={{ background: 'rgba(201,168,76,0.04)', border: '1px solid rgba(201,168,76,0.15)' }}
+        >
+          <p className="font-cormorant text-xl font-light mb-2" style={{ color: 'rgba(255,255,255,0.7)' }}>
+            "It will not make you a better trader. It will make you a better <em>thinker</em>."
+          </p>
+          <p className="font-raleway text-xs tracking-widest uppercase" style={{ color: 'rgba(201,168,76,0.5)' }}>
+            That is the only promise AURUM makes.
+          </p>
+        </motion.div>
       </div>
     </section>
   )

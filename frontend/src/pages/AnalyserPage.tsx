@@ -243,6 +243,11 @@ export default function AnalyserPage() {
               <p className="font-raleway text-xs mt-2" style={{ color: 'rgba(255,255,255,0.3)' }}>
                 NYSE · NASDAQ · Global markets
               </p>
+              <p className="font-raleway text-xs mt-1" style={{ color: 'rgba(201,168,76,0.45)' }}>
+                Indian stocks: add <span style={{ fontFamily: 'monospace', color: 'rgba(201,168,76,0.7)' }}>.NS</span> for NSE
+                or <span style={{ fontFamily: 'monospace', color: 'rgba(201,168,76,0.7)' }}>.BO</span> for BSE
+                &nbsp;(e.g. <span style={{ fontFamily: 'monospace' }}>RELIANCE.NS</span>)
+              </p>
             </div>
 
             <div className="pt-6">

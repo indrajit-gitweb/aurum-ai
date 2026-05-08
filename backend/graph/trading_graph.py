@@ -39,7 +39,7 @@ from data.yfinance_client import YFinanceClient
 from data.sec_edgar_client import SECEdgarClient
 from data.fred_client import FREDClient
 from llm.router import LLMRouter, AllProvidersExhaustedError
-from agents import PERSONA_REGISTRY, PERSONA_INFO
+from agents import PERSONA_REGISTRY, PERSONA_INFO, DEBATE_REGISTRY
 
 # Import main's Pydantic models (avoid circular — import lazily inside methods)
 # We re-define lightweight dataclasses here to keep the graph self-contained.
@@ -691,55 +691,96 @@ async def _node_research_manager(
     llm_router: LLMRouter,
     on_event: Callable,
 ) -> None:
+    """Run the ResearchManager agent — the senior analyst who synthesises all signals.
+
+    Uses the full ResearchManager class from DEBATE_REGISTRY which applies a
+    structured scoring framework (bull/bear score, investment horizon, position sizing).
+    """
     await on_event(
         {
             "type": "agent_start",
             "agent": "research_manager",
-            "message": "Research manager synthesising all signals...",
+            "message": "Research Manager reading all signals and rendering final synthesis...",
         }
     )
 
-    bull = "\n".join(state.get("bull_arguments", []))
-    bear = "\n".join(state.get("bear_arguments", []))
-    signals_summary = "\n".join(
-        f"- {s['agent'].title()}: {s['signal'].upper()} ({s['confidence']}% confidence)"
-        for s in state.get("persona_signals", [])
-    )
+    ResearchManagerClass = DEBATE_REGISTRY.get("research_manager")
+    synthesis = "Analysis unavailable."
+    signal_out = "neutral"
+    confidence_out = 50
 
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are the Head of Research at a top-tier investment fund.  "
-                "You have heard the bull and bear debates and read all analyst signals.  "
-                "Provide an authoritative synthesis that a portfolio manager can act on."
-            ),
-        },
-        {
-            "role": "user",
-            "content": (
-                f"## Analyst Signals\n{signals_summary}\n\n"
-                f"## Bull Case\n{bull}\n\n"
-                f"## Bear Case\n{bear}\n\n"
-                f"Provide a research synthesis covering:\n"
-                f"1. Overall assessment\n"
-                f"2. Key upside catalysts\n"
-                f"3. Key downside risks\n"
-                f"4. Recommended verdict (STRONG BUY / BUY / HOLD / SELL / STRONG SELL)\n"
-                f"5. Suggested price target (or N/A)\n"
-            ),
-        },
-    ]
+    if ResearchManagerClass is not None:
+        try:
+            # Transform state into the format ResearchManager.analyze() expects
+            persona_signals_dict = {
+                ps["agent"]: {
+                    "signal":     ps["signal"],
+                    "confidence": ps["confidence"],
+                    "reasoning":  ps["reasoning"][:300],
+                }
+                for ps in state.get("persona_signals", [])
+            }
 
-    synthesis = await _async_llm_invoke(llm_router, messages, task_type="deep")
+            bull_text = "\n".join(state.get("bull_arguments", []))
+            bear_text = "\n".join(state.get("bear_arguments", []))
+            fund = state.get("fundamentals", {})
+            tech = state.get("technical_indicators", {})
+            current_price = tech.get("current_price")
+            high_52w = fund.get("52w_high")
+
+            data = {
+                "persona_signals": persona_signals_dict,
+                "bull_debate":  {"signal": "bullish", "reasoning": bull_text[:800]},
+                "bear_debate":  {"signal": "bearish", "reasoning": bear_text[:800]},
+                "analyst_reports": {},   # analyst LLM reports not yet in pipeline
+                "company_info":  fund,
+                "key_metrics":   fund,
+                "price_data": {
+                    "current_price":     current_price,
+                    "week_52_high":      high_52w,
+                    "week_52_low":       fund.get("52w_low"),
+                    "pct_from_52w_high": (
+                        round((current_price / high_52w - 1) * 100, 2)
+                        if current_price and high_52w and high_52w > 0 else None
+                    ),
+                },
+            }
+
+            mgr = ResearchManagerClass(llm_router)
+            result = await asyncio.to_thread(mgr.analyze, state["ticker"], data)
+            synthesis = result.reasoning or synthesis
+            signal_out = result.signal or signal_out
+            confidence_out = result.confidence or confidence_out
+        except Exception as exc:
+            logger.warning("ResearchManager agent failed: %s", exc)
+            # Fall back to simple inline synthesis
+            signals_summary = "\n".join(
+                f"- {s['agent'].title()}: {s['signal'].upper()} ({s['confidence']}%)"
+                for s in state.get("persona_signals", [])
+            )
+            bull = "\n".join(state.get("bull_arguments", []))
+            bear = "\n".join(state.get("bear_arguments", []))
+            messages = [
+                {"role": "system", "content": (
+                    "You are the Head of Research. Synthesise the analyst signals and debate "
+                    "into a clear investment recommendation (2-3 paragraphs). "
+                    "Note bull/bear case score and your recommended conviction level."
+                )},
+                {"role": "user", "content": (
+                    f"Analyst Signals:\n{signals_summary}\n\n"
+                    f"Bull Case:\n{bull[:500]}\n\nBear Case:\n{bear[:500]}"
+                )},
+            ]
+            synthesis = await _async_llm_invoke(llm_router, messages, task_type="deep")
+
     state["research_synthesis"] = synthesis
 
     await on_event(
         {
             "type": "agent_complete",
             "agent": "research_manager",
-            "signal": "neutral",
-            "confidence": 100,
+            "signal": signal_out,
+            "confidence": confidence_out,
             "reasoning": synthesis[:300] + ("..." if len(synthesis) > 300 else ""),
         }
     )
