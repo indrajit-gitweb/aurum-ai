@@ -79,17 +79,19 @@ class LLMRouter:
         self._openrouter = _mk(OpenRouterClient,  os.getenv("OPENROUTER_API_KEY"))
 
         # ── Priority chains ────────────────────────────────────────────────────
-        # QUICK: speed first — Cerebras → Groq → SambaNova → Gemini → OpenRouter
+        # QUICK: user keys FIRST (highest priority), then shared pool by speed
+        # BUG-10 fix: removed mislabelled "cerebras_user" duplicate of _user_groq;
+        # moved gemini_user + openrouter_user to front so user keys are actually
+        # tried before the shared pool (not dead-last as before).
         self._quick_chain = [
-            ("cerebras_user",   self._user_groq),       # user Groq also counts as quick
             ("groq_user",       self._user_groq),
+            ("gemini_user",     self._user_gemini),
+            ("openrouter_user", self._user_openrouter),
             ("cerebras",        self._cerebras),
             ("groq",            self._groq),
             ("sambanova",       self._sambanova),
             ("gemini",          self._gemini),
             ("openrouter",      self._openrouter),
-            ("gemini_user",     self._user_gemini),
-            ("openrouter_user", self._user_openrouter),
         ]
 
         # DEEP: quality first — SambaNova 405B → Groq → Gemini → Cerebras → OpenRouter

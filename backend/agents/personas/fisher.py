@@ -86,7 +86,7 @@ GROWTH POTENTIAL (Points 1-2):
   Product Pipeline: {company.get('product_pipeline', 'N/A')}
 
 R&D (Point 3):
-  R&D Spend: {income.get('rd_expense', 'N/A')}
+  R&D Spend: {income.get('r_and_d', income.get('research_and_development', 'N/A'))}
   R&D as % of Revenue: {income.get('rd_pct_revenue', 'N/A')}
   Patents / IP moat: {company.get('ip_strength', 'N/A')}
 

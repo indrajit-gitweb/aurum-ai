@@ -77,7 +77,9 @@ class DruckenmillerAgent(BaseAgent):
     def analyze(self, ticker: str, data: dict) -> AgentSignal:
         metrics = data.get("key_metrics", {})
         income = data.get("income_statement", {})
-        macro = data.get("macro_data", {})
+        # BUG-02 fix: backend sends macro_summary (string), not macro_data (dict)
+        macro_summary = data.get("macro_summary", "")
+        yield_curve = data.get("yield_curve", {})
         company = data.get("company_info", {})
         technical = data.get("technical_indicators", {})
         cash_flow = data.get("cash_flow", {})
@@ -85,16 +87,12 @@ class DruckenmillerAgent(BaseAgent):
         prompt = f"""Stan, run your macro-to-micro analysis on {ticker} — {company.get('name', ticker)}.
 
 MACRO REGIME (Step 1 — your starting point):
-  Fed Funds Rate: {macro.get('fed_funds_rate', 'N/A')}
-  Fed Policy Direction: {macro.get('fed_rate_direction', 'N/A')}
-  10Y-2Y Yield Spread: {macro.get('yield_curve_spread', 'N/A')}
-  GDP Growth: {macro.get('gdp_growth', 'N/A')}
-  CPI Inflation: {macro.get('cpi_yoy', 'N/A')}
-  ISM PMI: {macro.get('ism_manufacturing', 'N/A')}
-  Credit Spreads (HY): {macro.get('hy_spread', 'N/A')}
-  VIX: {macro.get('vix', 'N/A')}
-  Liquidity Conditions: {macro.get('liquidity', 'N/A')}
-  Cycle Stage: {macro.get('cycle_stage', 'N/A')}
+{macro_summary if macro_summary else 'Macro data unavailable — rely on recent knowledge.'}
+  2Y Treasury: {yield_curve.get('2y', 'N/A')}%  |  10Y Treasury: {yield_curve.get('10y', 'N/A')}%  |  30Y Treasury: {yield_curve.get('30y', 'N/A')}%
+  Yield Curve Spread (10Y-2Y): {
+    f"{yield_curve.get('10y') - yield_curve.get('2y'):.2f}%"
+    if yield_curve.get('10y') is not None and yield_curve.get('2y') is not None else 'N/A'
+  }
 
 SECTOR POSITIONING (Step 2):
   Sector: {company.get('sector', 'N/A')}
@@ -120,7 +118,7 @@ STOCK-SPECIFIC CONFIRMATION (Step 4):
 MOMENTUM & TECHNICALS:
   Price Trend: {technical.get('trend_direction', 'N/A')}
   Relative Strength vs S&P 500: {technical.get('relative_strength_vs_spy', 'N/A')}
-  Price vs 200d SMA: {technical.get('price_vs_sma200_pct', 'N/A')}
+  Price vs 200d SMA: {technical.get('price_vs_sma200', 'N/A')}%
   Institutional Flow: {metrics.get('institutional_flow', 'N/A')}
 
 POSITION SIZING FRAMEWORK:

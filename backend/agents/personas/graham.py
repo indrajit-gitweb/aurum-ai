@@ -69,8 +69,11 @@ class GrahamAgent(BaseAgent):
         balance = data.get("balance_sheet", {})
         company = data.get("company_info", {})
 
-        eps = income.get("eps_diluted", "N/A")
-        bvps = balance.get("bvps", "N/A")
+        # BUG-05 fix: yfinance normalises to 'diluted_eps', not 'eps_diluted'
+        eps = income.get("diluted_eps", income.get("eps", "N/A"))
+        # BUG-08 fix: bvps comes from fundamentals (yfinance info.bookValue),
+        # not from the balance sheet DataFrame (which has no per-share rows)
+        bvps = metrics.get("bvps", balance.get("bvps", "N/A"))
         pe = metrics.get("pe_ratio", "N/A")
         pb = metrics.get("pb_ratio", "N/A")
 

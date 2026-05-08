@@ -68,7 +68,7 @@ class NewsSentimentAgent(BaseAgent):
         )
 
     def analyze(self, ticker: str, data: dict) -> AgentSignal:
-        news = data.get("news_articles", [])
+        news = data.get("news", data.get("news_articles", []))  # BUG-01 fix
         insiders = data.get("insider_transactions", [])
         company = data.get("company_info", {})
 

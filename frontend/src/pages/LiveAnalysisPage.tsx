@@ -493,6 +493,8 @@ export default function LiveAnalysisPage() {
   const [bearLines, setBearLines] = useState<string[]>([])
   const timelineBottomRef = useRef<HTMLDivElement>(null)
   const lineCounter = useRef(0)
+  // BUG-17 fix: track last-processed event index so batched arrivals aren't dropped
+  const lastProcessedIdx = useRef(-1)
 
   // Read ticker from sessionStorage (stored by AnalyserPage before navigating)
   const [ticker] = useState<string>(() => {
@@ -518,62 +520,67 @@ export default function LiveAnalysisPage() {
   })
 
   // ── Process incoming WebSocket events ────────────────────────────────────────
+  // BUG-17 fix: process ALL new events since last run, not just events[last]
+  // This prevents batched state updates from silently dropping agent_start signals.
   useEffect(() => {
-    const latest = events[events.length - 1]
-    if (!latest) return
+    const newEvents = events.slice(lastProcessedIdx.current + 1)
+    if (newEvents.length === 0) return
+    lastProcessedIdx.current = events.length - 1
 
-    // Normalise field names — backend uses 'agent'+'message', not 'agent_id'+'content'
-    const agentId   = getAgentId(latest)
-    const agentText = getEventText(latest)
-    const agentName = agentId ? getAgentName(agentId, latest.agent_name) : undefined
+    for (const ev of newEvents) {
+      // Normalise field names — backend uses 'agent'+'message', not 'agent_id'+'content'
+      const agentId   = getAgentId(ev)
+      const agentText = getEventText(ev)
+      const agentName = agentId ? getAgentName(agentId, ev.agent_name) : undefined
 
-    // Add to thought stream (skip empty events like debate_start which have no text)
-    if (agentText || latest.type === 'debate_start') {
-      const displayText = agentText || (latest.type === 'debate_start' ? '⚔  Bull vs Bear debate begins' : '')
-      setThoughtLines((prev) => [
-        ...prev.slice(-300),
-        { agentName, content: displayText, type: latest.type, id: lineCounter.current++ },
-      ])
-    }
+      // Add to thought stream (skip empty events like debate_start which have no text)
+      if (agentText || ev.type === 'debate_start') {
+        const displayText = agentText || (ev.type === 'debate_start' ? '⚔  Bull vs Bear debate begins' : '')
+        setThoughtLines((prev) => [
+          ...prev.slice(-300),
+          { agentName, content: displayText, type: ev.type, id: lineCounter.current++ },
+        ])
+      }
 
-    switch (latest.type) {
-      case 'agent_start':
-        if (agentId) {
-          setAgents((prev) => prev.map((a) => a.id === agentId ? { ...a, status: 'running' } : a))
-        }
-        break
+      switch (ev.type) {
+        case 'agent_start':
+          if (agentId) {
+            setAgents((prev) => prev.map((a) => a.id === agentId ? { ...a, status: 'running' } : a))
+          }
+          break
 
-      case 'agent_complete':
-        if (agentId) {
-          setAgents((prev) =>
-            prev.map((a) =>
-              a.id === agentId
-                ? {
-                    ...a,
-                    status: 'complete',
-                    signal: normalizeSignal(latest.signal),
-                    summary: latest.reasoning || latest.summary || agentText,
-                  }
-                : a
+        case 'agent_complete':
+          if (agentId) {
+            setAgents((prev) =>
+              prev.map((a) =>
+                a.id === agentId
+                  ? {
+                      ...a,
+                      status: 'complete',
+                      signal: normalizeSignal(ev.signal),
+                      summary: ev.reasoning || ev.summary || agentText,
+                    }
+                  : a
+              )
             )
-          )
-          timelineBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-        }
-        break
+            timelineBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+          }
+          break
 
-      // Backend sends type="debate_message" + side="bull"|"bear"
-      case 'debate_message':
-        if (latest.side === 'bull' && agentText) setBullLines((prev) => [...prev, agentText])
-        if (latest.side === 'bear' && agentText) setBearLines((prev) => [...prev, agentText])
-        break
+        // Backend sends type="debate_message" + side="bull"|"bear"
+        case 'debate_message':
+          if (ev.side === 'bull' && agentText) setBullLines((prev) => [...prev, agentText])
+          if (ev.side === 'bear' && agentText) setBearLines((prev) => [...prev, agentText])
+          break
 
-      // Fallback for legacy event types
-      case 'debate_bull':
-        if (agentText) setBullLines((prev) => [...prev, agentText])
-        break
-      case 'debate_bear':
-        if (agentText) setBearLines((prev) => [...prev, agentText])
-        break
+        // Fallback for legacy event types
+        case 'debate_bull':
+          if (agentText) setBullLines((prev) => [...prev, agentText])
+          break
+        case 'debate_bear':
+          if (agentText) setBearLines((prev) => [...prev, agentText])
+          break
+      }
     }
   }, [events.length]) // eslint-disable-line
 

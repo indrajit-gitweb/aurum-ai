@@ -133,7 +133,7 @@ export function useWebSocket(sessionId: string | null): UseWebSocketReturn {
     } catch {
       setError('Failed to connect to analysis server')
     }
-  }, [sessionId, isComplete])
+  }, [sessionId]) // BUG-13 fix: isComplete removed — isCompleteRef is used inside the closure instead
 
   useEffect(() => {
     if (!sessionId) return

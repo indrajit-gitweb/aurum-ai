@@ -74,7 +74,11 @@ class DamodaranAgent(BaseAgent):
         balance = data.get("balance_sheet", {})
         cash_flow = data.get("cash_flow", {})
         company = data.get("company_info", {})
-        macro = data.get("macro_data", {})
+        # BUG-02 fix: backend sends macro_summary (string), not macro_data (dict)
+        macro_summary = data.get("macro_summary", "")
+        yield_curve = data.get("yield_curve", {})
+        # Risk-free rate from FRED yield curve (10Y treasury)
+        risk_free_rate = yield_curve.get("10y") or "N/A"
 
         prompt = f"""Professor, run your full valuation analysis on {ticker} — {company.get('name', ticker)}.
 
@@ -97,7 +101,7 @@ DCF INPUTS:
   Reinvestment Rate: {metrics.get('reinvestment_rate', 'N/A')}
 
 COST OF CAPITAL (WACC):
-  Risk-Free Rate: {macro.get('treasury_10y', 'N/A')}
+  Risk-Free Rate (10Y Treasury): {risk_free_rate}%
   Equity Beta: {metrics.get('beta', 'N/A')}
   Equity Risk Premium (ERP): {metrics.get('erp', '5.5%')}
   Implied Cost of Equity: {metrics.get('cost_of_equity', 'N/A')}
@@ -115,17 +119,15 @@ RELATIVE VALUE BENCHMARKS:
   P/E: {metrics.get('pe_ratio', 'N/A')} vs sector median: {company.get('sector_pe', 'N/A')}
   EV/Sales: {metrics.get('ev_sales', 'N/A')} vs sector: {company.get('sector_ev_sales', 'N/A')}
   P/B: {metrics.get('pb_ratio', 'N/A')}
-  Justified P/B (ROE / CoE): approx {
-            f"{float(metrics.get('roe', '0').replace('%','')) / float(metrics.get('cost_of_equity', '10').replace('%','')):.2f}x"
-            if metrics.get('roe') and metrics.get('cost_of_equity') and
-               metrics.get('roe') != 'N/A' and metrics.get('cost_of_equity') != 'N/A'
-            else 'N/A'
-          }
+  Justified P/B (ROE / ~10% CoE est.): {(lambda r: f"{float(r) / 0.10:.2f}x" if r is not None else "N/A")(metrics.get('roe'))}
 
 RETURN ON CAPITAL:
   ROIC: {metrics.get('roic', 'N/A')}
   ROE: {metrics.get('roe', 'N/A')}
   Spread (ROIC - WACC): {metrics.get('roic_wacc_spread', 'N/A')}
+
+MACRO CONTEXT:
+{macro_summary if macro_summary else 'Macro data unavailable — use your sector knowledge.'}
 
 Build an explicit DCF narrative: what growth rate, margin, and WACC assumptions does the current price imply?
 Are those assumptions realistic vs sector benchmarks?

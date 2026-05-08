@@ -51,7 +51,7 @@ INCOME STATEMENT:
   Gross Margin: {income.get('gross_margin', 'N/A')}
   Operating Margin: {income.get('operating_margin', 'N/A')}
   Net Margin: {income.get('net_margin', 'N/A')}
-  EPS (diluted): {income.get('eps_diluted', 'N/A')}
+  EPS (diluted): {income.get('diluted_eps', income.get('eps', 'N/A'))}
   EPS Growth YoY: {income.get('eps_growth_yoy', 'N/A')}
 
 BALANCE SHEET:

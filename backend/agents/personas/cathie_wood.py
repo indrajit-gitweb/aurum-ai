@@ -103,6 +103,7 @@ PLATFORM METRICS:
   Net Revenue Retention: {metrics.get('nrr', 'N/A')}
   Customer Count Growth: {metrics.get('customer_growth', 'N/A')}
   Engagement/Usage Metrics: {metrics.get('usage_growth', 'N/A')}
+  R&D Spend: {income.get('r_and_d', income.get('research_and_development', 'N/A'))}
   R&D as % Revenue: {income.get('rd_pct_revenue', 'N/A')}
 
 VALUATION (5-YEAR DCF):

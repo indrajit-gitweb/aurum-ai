@@ -175,6 +175,9 @@ class YFinanceClient:
                 # Return ratios
                 "roe": info.get("returnOnEquity"),
                 "roa": info.get("returnOnAssets"),
+                # Per-share data (for Graham Number etc.)
+                "bvps": info.get("bookValue"),              # book value per share
+                "shares_outstanding": info.get("sharesOutstanding"),
                 # Derived multiples
                 "ev_ebitda": (
                     round(ev / ebitda_v, 2)
@@ -252,6 +255,10 @@ class YFinanceClient:
                     result["operating_margin"] = round(oi / rev, 4)
                 if ni is not None and "net_margin" not in result:
                     result["net_margin"] = round(ni / rev, 4)
+                # R&D as % of revenue (yfinance reports R&D as a negative expense)
+                rd = result.get("r_and_d") or result.get("research_and_development")
+                if rd is not None:
+                    result["rd_pct_revenue"] = round(abs(rd) / rev, 4)
             return result
         except Exception as exc:
             logger.warning("[%s] get_income_statement failed: %s", self.ticker, exc)

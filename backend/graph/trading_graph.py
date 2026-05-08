@@ -520,6 +520,7 @@ async def _node_persona(
                 "macro_summary": state.get("macro_summary", ""),
                 "sec_facts": state.get("sec_facts", {}),
                 "price_data": price_data,          # BUG-04 fix
+                "yield_curve": state.get("yield_curve", {}),  # for Damodaran risk-free rate
                 # Field aliases various agents use
                 "key_metrics": fund,               # BUG-08 fix (was technical_indicators)
                 "cash_flow": cf_enriched,          # alias for fundamentals_analyst
@@ -837,7 +838,8 @@ async def _node_portfolio_manager(
 
     try:
         # Extract JSON from the response (may have surrounding text)
-        json_match = _re.search(r"\{.*\}", pm_text, _re.DOTALL)
+        # BUG-16 fix: non-greedy to avoid overshooting past the JSON object
+        json_match = _re.search(r"\{.*?\}", pm_text, _re.DOTALL) or _re.search(r"\{.*\}", pm_text, _re.DOTALL)
         if json_match:
             pm_data = json.loads(json_match.group())
             verdict = pm_data.get("verdict", verdict)
