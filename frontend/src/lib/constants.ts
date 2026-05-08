@@ -1,3 +1,5 @@
+// Persona list MUST match backend PERSONA_REGISTRY keys exactly.
+// Backend file: backend/agents/__init__.py → PERSONA_REGISTRY
 export const PERSONAS = [
   {
     id: "buffett",
@@ -72,28 +74,12 @@ export const PERSONAS = [
     color: "#FFD700",
   },
   {
-    id: "simons",
-    name: "Jim Simons",
-    style: "Quantitative",
-    initials: "JS",
-    description: "Pure quant — patterns, signals, statistical edges",
-    color: "#C9A84C",
-  },
-  {
     id: "ackman",
     name: "Bill Ackman",
     style: "Activist Value",
     initials: "BA",
     description: "Concentrated activist positions with catalysts",
     color: "#C0C0C0",
-  },
-  {
-    id: "marks",
-    name: "Howard Marks",
-    style: "Risk-First",
-    initials: "HM",
-    description: "Market cycles, second-level thinking, risk control",
-    color: "#C9A84C",
   },
   {
     id: "fisher",
@@ -104,20 +90,36 @@ export const PERSONAS = [
     color: "#FFD700",
   },
   {
-    id: "icahn",
-    name: "Carl Icahn",
-    style: "Corporate Raiders",
-    initials: "CI",
-    description: "Unlocking value through pressure on management",
-    color: "#C0C0C0",
+    id: "pabrai",
+    name: "Mohnish Pabrai",
+    style: "Dhandho Value",
+    initials: "MP",
+    description: "Heads I win, tails I don't lose much — Dhandho framework",
+    color: "#C9A84C",
   },
   {
-    id: "templeton",
-    name: "John Templeton",
-    style: "Global Contrarian",
-    initials: "JT",
-    description: "Maximum pessimism globally — buy at the point of despair",
+    id: "jhunjhunwala",
+    name: "Rakesh Jhunjhunwala",
+    style: "Emerging Markets",
+    initials: "RJ",
+    description: "India's Big Bull — GARP with demographic tailwinds",
     color: "#C9A84C",
+  },
+  {
+    id: "growth_agent",
+    name: "Growth Analyst",
+    style: "Rule of 40",
+    initials: "GA",
+    description: "Revenue growth, NRR, gross margin expansion",
+    color: "#FFD700",
+  },
+  {
+    id: "news_sentiment",
+    name: "News Sentiment",
+    style: "Event-Driven",
+    initials: "NS",
+    description: "Aggregates news flow, insider signals & catalysts",
+    color: "#C0C0C0",
   },
 ] as const
 
@@ -143,19 +145,9 @@ export const SIGNAL_COLORS = {
 } as const
 
 export const VERDICT_CONFIG = {
-  BUY: {
-    color: '#C9A84C',
-    glow: 'rgba(201, 168, 76, 0.4)',
-    label: 'BUY',
-  },
-  HOLD: {
-    color: '#C0C0C0',
-    glow: 'rgba(192, 192, 192, 0.3)',
-    label: 'HOLD',
-  },
-  SELL: {
-    color: '#ef4444',
-    glow: 'rgba(239, 68, 68, 0.4)',
-    label: 'SELL',
-  },
+  'STRONG BUY': { color: '#22c55e', glow: 'rgba(34,197,94,0.4)', label: 'STRONG BUY' },
+  'BUY':        { color: '#C9A84C', glow: 'rgba(201,168,76,0.3)', label: 'BUY' },
+  'HOLD':       { color: '#C0C0C0', glow: 'rgba(192,192,192,0.2)', label: 'HOLD' },
+  'SELL':       { color: '#ef4444', glow: 'rgba(239,68,68,0.3)', label: 'SELL' },
+  'STRONG SELL':{ color: '#dc2626', glow: 'rgba(220,38,38,0.4)', label: 'STRONG SELL' },
 } as const

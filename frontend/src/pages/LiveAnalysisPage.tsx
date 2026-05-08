@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { CheckCircle, Circle, Loader, TrendingUp, TrendingDown, Minus, Download, RefreshCw } from 'lucide-react'
+import { CheckCircle, Loader, TrendingUp, TrendingDown, Minus, Download, RefreshCw, AlertCircle } from 'lucide-react'
 import { useWebSocket } from '@/hooks/useWebSocket'
-import { PERSONAS } from '@/lib/constants'
-import type { WSEvent } from '@/hooks/useWebSocket'
-import type { FinalResult } from '@/hooks/useWebSocket'
+import { PERSONAS, VERDICT_CONFIG } from '@/lib/constants'
+import type { WSEvent, FinalResult } from '@/hooks/useWebSocket'
 
-// ─── Agent Status Map ──────────────────────────────────────────────────────────
+// ─── Agent Status ──────────────────────────────────────────────────────────────
 type AgentStatus = 'pending' | 'running' | 'complete'
 
 interface AgentState {
@@ -24,48 +23,57 @@ function buildInitialAgents(): AgentState[] {
     id: p.id,
     name: p.name,
     initials: p.initials,
-    status: 'pending',
+    status: 'pending' as AgentStatus,
   }))
+}
+
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+/** Normalize the 'agent' field from a WSEvent — backend sends 'agent', not 'agent_id' */
+function getAgentId(ev: WSEvent): string {
+  return ev.agent || ev.agent_id || ''
+}
+
+/** Get displayable text from a WSEvent — backend sends 'message', not 'content' */
+function getEventText(ev: WSEvent): string {
+  return ev.message || ev.content || ev.reasoning || ''
+}
+
+/** Convert lowercase backend signal to uppercase UI signal */
+function normalizeSignal(raw?: string): 'BULLISH' | 'BEARISH' | 'NEUTRAL' {
+  const up = (raw || '').toUpperCase()
+  if (up === 'BULLISH') return 'BULLISH'
+  if (up === 'BEARISH') return 'BEARISH'
+  return 'NEUTRAL'
+}
+
+/** Look up a human-readable agent name from the personas list or format the id */
+function getAgentName(agentId: string, eventAgentName?: string): string {
+  if (eventAgentName) return eventAgentName
+  const p = PERSONAS.find((p) => p.id === agentId)
+  if (p) return p.name
+  // Format snake_case ids nicely
+  return agentId.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 // ─── Agent Timeline Item ───────────────────────────────────────────────────────
 function AgentTimelineItem({ agent, isLast }: { agent: AgentState; isLast: boolean }) {
-  const signalColors: Record<string, string> = {
-    BULLISH: '#22c55e',
-    BEARISH: '#ef4444',
-    NEUTRAL: '#C0C0C0',
-  }
-  const signalIcons: Record<string, typeof TrendingUp> = {
-    BULLISH: TrendingUp,
-    BEARISH: TrendingDown,
-    NEUTRAL: Minus,
-  }
+  const signalColors = { BULLISH: '#22c55e', BEARISH: '#ef4444', NEUTRAL: '#C0C0C0' }
 
   return (
     <div className="relative flex gap-4 pb-6">
-      {/* Vertical line */}
       {!isLast && (
-        <div
-          className="absolute left-5 top-10 bottom-0 w-px"
-          style={{ background: 'rgba(255,255,255,0.07)' }}
-        />
+        <div className="absolute left-5 top-10 bottom-0 w-px" style={{ background: 'rgba(255,255,255,0.07)' }} />
       )}
 
-      {/* Icon */}
       <div className="relative shrink-0 mt-1">
         {agent.status === 'running' ? (
           <div className="relative">
             <div
-              className="w-10 h-10 rounded-full flex items-center justify-center font-cinzel font-bold text-xs gold-pulse-ring"
-              style={{
-                background: 'rgba(201,168,76,0.15)',
-                border: '1px solid rgba(201,168,76,0.6)',
-                color: '#FFD700',
-              }}
+              className="w-10 h-10 rounded-full flex items-center justify-center font-cinzel font-bold text-xs"
+              style={{ background: 'rgba(201,168,76,0.15)', border: '1px solid rgba(201,168,76,0.6)', color: '#FFD700' }}
             >
               {agent.initials}
             </div>
-            {/* Spinning ring */}
             <motion.div
               animate={{ rotate: 360 }}
               transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
@@ -76,51 +84,35 @@ function AgentTimelineItem({ agent, isLast }: { agent: AgentState; isLast: boole
         ) : agent.status === 'complete' ? (
           <div
             className="w-10 h-10 rounded-full flex items-center justify-center font-cinzel font-bold text-xs"
-            style={{
-              background: 'rgba(201,168,76,0.1)',
-              border: '1px solid rgba(201,168,76,0.3)',
-              color: '#C9A84C',
-            }}
+            style={{ background: 'rgba(201,168,76,0.1)', border: '1px solid rgba(201,168,76,0.3)', color: '#C9A84C' }}
           >
             {agent.initials}
           </div>
         ) : (
           <div
             className="w-10 h-10 rounded-full flex items-center justify-center font-cinzel font-bold text-xs"
-            style={{
-              background: 'rgba(255,255,255,0.03)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              color: 'rgba(255,255,255,0.3)',
-            }}
+            style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.3)' }}
           >
             {agent.initials}
           </div>
         )}
       </div>
 
-      {/* Content */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between mb-0.5">
           <p
             className="font-cinzel text-sm font-semibold truncate"
             style={{
-              color:
-                agent.status === 'pending'
-                  ? 'rgba(255,255,255,0.3)'
-                  : agent.status === 'running'
-                  ? '#ffffff'
-                  : '#C9A84C',
+              color: agent.status === 'pending' ? 'rgba(255,255,255,0.3)' : agent.status === 'running' ? '#ffffff' : '#C9A84C',
             }}
           >
             {agent.name}
           </p>
-
           {agent.status === 'running' && (
             <span className="font-raleway text-xs ml-2 shrink-0 animate-pulse" style={{ color: '#C9A84C' }}>
               thinking…
             </span>
           )}
-
           {agent.status === 'complete' && agent.signal && (
             <span
               className="font-raleway text-xs font-semibold ml-2 shrink-0 px-2 py-0.5"
@@ -137,7 +129,6 @@ function AgentTimelineItem({ agent, isLast }: { agent: AgentState; isLast: boole
             </span>
           )}
         </div>
-
         {agent.status === 'complete' && agent.summary && (
           <motion.p
             initial={{ opacity: 0 }}
@@ -146,14 +137,11 @@ function AgentTimelineItem({ agent, isLast }: { agent: AgentState; isLast: boole
             className="font-raleway text-xs leading-relaxed"
             style={{ color: 'rgba(255,255,255,0.45)' }}
           >
-            {agent.summary}
+            {agent.summary.slice(0, 120)}{agent.summary.length > 120 ? '…' : ''}
           </motion.p>
         )}
-
         {agent.status === 'pending' && (
-          <p className="font-raleway text-xs" style={{ color: 'rgba(255,255,255,0.2)' }}>
-            Queued
-          </p>
+          <p className="font-raleway text-xs" style={{ color: 'rgba(255,255,255,0.2)' }}>Queued</p>
         )}
       </div>
     </div>
@@ -164,7 +152,7 @@ function AgentTimelineItem({ agent, isLast }: { agent: AgentState; isLast: boole
 interface ThoughtLine {
   agentName?: string
   content: string
-  type: WSEvent['type']
+  type: string
   id: number
 }
 
@@ -176,24 +164,23 @@ function ThoughtStream({ lines, isConnected }: { lines: ThoughtLine[]; isConnect
   }, [lines.length])
 
   const typeColor: Record<string, string> = {
-    agent_thought: '#C9A84C',
-    agent_start: '#FFD700',
+    agent_start:    '#FFD700',
+    agent_progress: '#C9A84C',
+    agent_thought:  '#C9A84C',
     agent_complete: '#22c55e',
-    debate_bull: '#22c55e',
-    debate_bear: '#ef4444',
-    error: '#ef4444',
-    info: 'rgba(192,192,192,0.7)',
-    final_result: '#FFD700',
+    debate_start:   'rgba(201,168,76,0.5)',
+    debate_message: '#C9A84C',
+    debate_bull:    '#22c55e',
+    debate_bear:    '#ef4444',
+    error:          '#ef4444',
+    info:           'rgba(192,192,192,0.7)',
+    final_result:   '#FFD700',
   }
 
   return (
     <div
       className="h-full flex flex-col"
-      style={{
-        background: '#080808',
-        border: '1px solid rgba(201,168,76,0.12)',
-        fontFamily: "'Courier New', monospace",
-      }}
+      style={{ background: '#080808', border: '1px solid rgba(201,168,76,0.12)', fontFamily: "'Courier New', monospace" }}
     >
       {/* Terminal header */}
       <div
@@ -213,10 +200,7 @@ function ThoughtStream({ lines, isConnected }: { lines: ThoughtLine[]; isConnect
         <div className="flex items-center gap-2">
           <div
             className="w-2 h-2 rounded-full"
-            style={{
-              background: isConnected ? '#22c55e' : '#ef4444',
-              boxShadow: isConnected ? '0 0 6px #22c55e' : '0 0 6px #ef4444',
-            }}
+            style={{ background: isConnected ? '#22c55e' : '#ef4444', boxShadow: isConnected ? '0 0 6px #22c55e' : '0 0 6px #ef4444' }}
           />
           <span className="font-raleway text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>
             {isConnected ? 'Connected' : 'Disconnected'}
@@ -246,25 +230,22 @@ function ThoughtStream({ lines, isConnected }: { lines: ThoughtLine[]; isConnect
             <span style={{ color: typeColor[line.type] || '#C0C0C0' }}>
               {line.type === 'agent_start' && '→ '}
               {line.type === 'agent_complete' && '✓ '}
+              {line.type === 'debate_start' && '⚔ '}
               {line.content}
             </span>
           </motion.div>
         ))}
 
-        {/* Blinking cursor */}
         {isConnected && (
-          <div className="text-xs typing-cursor inline-block" style={{ color: '#C9A84C' }}>
-            {' '}
-          </div>
+          <div className="text-xs inline-block animate-pulse" style={{ color: '#C9A84C' }}>▌</div>
         )}
-
         <div ref={bottomRef} />
       </div>
     </div>
   )
 }
 
-// ─── Debate Section ─────────────────────────────────────────────────────────────
+// ─── Debate Section ────────────────────────────────────────────────────────────
 function DebateSection({ bullLines, bearLines }: { bullLines: string[]; bearLines: string[] }) {
   if (bullLines.length === 0 && bearLines.length === 0) return null
 
@@ -280,57 +261,31 @@ function DebateSection({ bullLines, bearLines }: { bullLines: string[]; bearLine
         Bull vs Bear Debate
         <span style={{ color: 'rgba(201,168,76,0.5)' }}>—</span>
       </h3>
-
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Bull */}
-        <div
-          className="p-5"
-          style={{ background: 'rgba(34,197,94,0.04)', border: '1px solid rgba(34,197,94,0.2)' }}
-        >
+        <div className="p-5" style={{ background: 'rgba(34,197,94,0.04)', border: '1px solid rgba(34,197,94,0.2)' }}>
           <div className="flex items-center gap-2 mb-4">
             <TrendingUp size={16} style={{ color: '#22c55e' }} />
-            <span className="font-cinzel text-sm font-semibold" style={{ color: '#22c55e' }}>
-              Bull Case
-            </span>
+            <span className="font-cinzel text-sm font-semibold" style={{ color: '#22c55e' }}>Bull Case</span>
           </div>
           <div className="space-y-2">
             {bullLines.map((line, i) => (
-              <motion.p
-                key={i}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.1 }}
-                className="font-raleway text-xs leading-relaxed"
-                style={{ color: 'rgba(255,255,255,0.6)' }}
-              >
-                • {line}
+              <motion.p key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.1 }}
+                className="font-raleway text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.6)' }}>
+                {line}
               </motion.p>
             ))}
           </div>
         </div>
-
-        {/* Bear */}
-        <div
-          className="p-5"
-          style={{ background: 'rgba(239,68,68,0.04)', border: '1px solid rgba(239,68,68,0.2)' }}
-        >
+        <div className="p-5" style={{ background: 'rgba(239,68,68,0.04)', border: '1px solid rgba(239,68,68,0.2)' }}>
           <div className="flex items-center gap-2 mb-4">
             <TrendingDown size={16} style={{ color: '#ef4444' }} />
-            <span className="font-cinzel text-sm font-semibold" style={{ color: '#ef4444' }}>
-              Bear Case
-            </span>
+            <span className="font-cinzel text-sm font-semibold" style={{ color: '#ef4444' }}>Bear Case</span>
           </div>
           <div className="space-y-2">
             {bearLines.map((line, i) => (
-              <motion.p
-                key={i}
-                initial={{ opacity: 0, x: 10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.1 }}
-                className="font-raleway text-xs leading-relaxed"
-                style={{ color: 'rgba(255,255,255,0.6)' }}
-              >
-                • {line}
+              <motion.p key={i} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.1 }}
+                className="font-raleway text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.6)' }}>
+                {line}
               </motion.p>
             ))}
           </div>
@@ -349,15 +304,7 @@ function ConfidenceArc({ confidence }: { confidence: number }) {
   return (
     <div className="relative flex flex-col items-center">
       <svg width="160" height="90" viewBox="0 0 160 90">
-        {/* Track */}
-        <path
-          d="M 10 85 A 70 70 0 0 1 150 85"
-          fill="none"
-          stroke="rgba(255,255,255,0.08)"
-          strokeWidth="6"
-          strokeLinecap="round"
-        />
-        {/* Progress */}
+        <path d="M 10 85 A 70 70 0 0 1 150 85" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="6" strokeLinecap="round" />
         <motion.path
           d="M 10 85 A 70 70 0 0 1 150 85"
           fill="none"
@@ -378,18 +325,11 @@ function ConfidenceArc({ confidence }: { confidence: number }) {
         </defs>
       </svg>
       <div className="absolute bottom-0 text-center">
-        <motion.p
-          className="font-cinzel font-bold text-2xl"
-          style={{ color: '#FFD700' }}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.8 }}
-        >
+        <motion.p className="font-cinzel font-bold text-2xl" style={{ color: '#FFD700' }}
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.8 }}>
           {confidence}%
         </motion.p>
-        <p className="font-raleway text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>
-          Confidence
-        </p>
+        <p className="font-raleway text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>Confidence</p>
       </div>
     </div>
   )
@@ -397,13 +337,9 @@ function ConfidenceArc({ confidence }: { confidence: number }) {
 
 // ─── Final Result Banner ───────────────────────────────────────────────────────
 function FinalResultBanner({ result, ticker }: { result: FinalResult; ticker: string }) {
-  const navigate = useNavigate()
-  const verdictConfig = {
-    BUY: { color: '#C9A84C', glow: 'rgba(201,168,76,0.3)', label: 'BUY' },
-    HOLD: { color: '#C0C0C0', glow: 'rgba(192,192,192,0.2)', label: 'HOLD' },
-    SELL: { color: '#ef4444', glow: 'rgba(239,68,68,0.3)', label: 'SELL' },
-  }
-  const config = verdictConfig[result.verdict] || verdictConfig.HOLD
+  // Normalise verdict — backend can send "STRONG BUY", "BUY", "HOLD", "SELL", "STRONG SELL"
+  const verdictKey = result.verdict?.toUpperCase() as keyof typeof VERDICT_CONFIG
+  const config = VERDICT_CONFIG[verdictKey] || VERDICT_CONFIG['HOLD']
 
   return (
     <motion.div
@@ -417,26 +353,6 @@ function FinalResultBanner({ result, ticker }: { result: FinalResult; ticker: st
         boxShadow: `0 0 60px ${config.glow}`,
       }}
     >
-      {/* Particle burst background */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        {result.verdict === 'BUY' &&
-          Array.from({ length: 12 }).map((_, i) => (
-            <motion.div
-              key={i}
-              className="absolute w-1 h-1 rounded-full"
-              style={{ background: '#FFD700', left: `${50 + (Math.random() - 0.5) * 80}%`, top: '50%' }}
-              initial={{ scale: 0, opacity: 1 }}
-              animate={{
-                scale: [0, 1, 0],
-                x: [(Math.random() - 0.5) * 200],
-                y: [(Math.random() - 0.5) * 200],
-                opacity: [1, 0.6, 0],
-              }}
-              transition={{ duration: 1.5, delay: i * 0.08 }}
-            />
-          ))}
-      </div>
-
       <div className="relative z-10 p-8 md:p-12">
         {/* Verdict */}
         <div className="text-center mb-10">
@@ -451,7 +367,7 @@ function FinalResultBanner({ result, ticker }: { result: FinalResult; ticker: st
             <h2
               className="font-cinzel font-bold"
               style={{
-                fontSize: 'clamp(4rem, 12vw, 9rem)',
+                fontSize: 'clamp(3rem, 10vw, 7rem)',
                 color: config.color,
                 textShadow: `0 0 60px ${config.glow}, 0 0 120px ${config.glow}`,
                 lineHeight: 1,
@@ -460,31 +376,38 @@ function FinalResultBanner({ result, ticker }: { result: FinalResult; ticker: st
               {config.label}
             </h2>
           </motion.div>
+          {result.target_price && (
+            <p className="font-raleway text-sm mt-3" style={{ color: 'rgba(255,255,255,0.5)' }}>
+              Target Price:{' '}
+              <span className="font-cinzel font-semibold" style={{ color: '#C9A84C' }}>
+                ${result.target_price.toFixed(2)}
+              </span>
+            </p>
+          )}
         </div>
 
-        {/* Confidence + signals grid */}
+        {/* Confidence + persona signal bubbles */}
         <div className="flex flex-col md:flex-row items-center justify-center gap-10 mb-10">
           <ConfidenceArc confidence={result.confidence} />
 
-          {/* Signal vote breakdown */}
-          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 max-w-sm">
-            {Object.entries(result.agent_signals || {}).map(([agentId, data]) => {
-              const persona = PERSONAS.find((p) => p.id === agentId)
-              const sigColor = data.signal === 'BULLISH' ? '#22c55e' : data.signal === 'BEARISH' ? '#ef4444' : '#C0C0C0'
+          {/* Persona signal grid — backend sends persona_signals as an array */}
+          <div className="grid grid-cols-4 sm:grid-cols-5 gap-2 max-w-xs">
+            {(result.persona_signals || []).map((sig) => {
+              const persona = PERSONAS.find((p) => p.id === sig.agent)
+              const sigUp = (sig.signal || '').toUpperCase()
+              const sigColor = sigUp === 'BULLISH' ? '#22c55e' : sigUp === 'BEARISH' ? '#ef4444' : '#C0C0C0'
               return (
                 <div
-                  key={agentId}
+                  key={sig.agent}
                   className="flex flex-col items-center p-2"
-                  style={{
-                    background: `${sigColor}10`,
-                    border: `1px solid ${sigColor}30`,
-                  }}
+                  title={`${persona?.name || sig.agent}: ${sig.signal} (${sig.confidence}%)`}
+                  style={{ background: `${sigColor}10`, border: `1px solid ${sigColor}30` }}
                 >
                   <span className="font-cinzel text-xs font-bold mb-1" style={{ color: sigColor }}>
-                    {persona?.initials || agentId.slice(0, 2).toUpperCase()}
+                    {persona?.initials || sig.agent.slice(0, 2).toUpperCase()}
                   </span>
-                  <span className="font-raleway" style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)' }}>
-                    {data.signal === 'BULLISH' ? '▲' : data.signal === 'BEARISH' ? '▼' : '●'}
+                  <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)' }}>
+                    {sigUp === 'BULLISH' ? '▲' : sigUp === 'BEARISH' ? '▼' : '●'}
                   </span>
                 </div>
               )
@@ -492,7 +415,16 @@ function FinalResultBanner({ result, ticker }: { result: FinalResult; ticker: st
           </div>
         </div>
 
-        {/* Bull / Bear side by side */}
+        {/* Executive summary */}
+        {result.summary && (
+          <div className="mb-8 p-5 text-center" style={{ background: 'rgba(201,168,76,0.04)', border: '1px solid rgba(201,168,76,0.12)' }}>
+            <p className="font-raleway text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.7)' }}>
+              {result.summary}
+            </p>
+          </div>
+        )}
+
+        {/* Bull / Bear */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           <div className="p-6" style={{ background: 'rgba(34,197,94,0.04)', border: '1px solid rgba(34,197,94,0.15)' }}>
             <p className="font-cinzel text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#22c55e' }}>
@@ -512,20 +444,22 @@ function FinalResultBanner({ result, ticker }: { result: FinalResult; ticker: st
           </div>
         </div>
 
-        {/* Risk + CTA */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div>
-            <span className="font-raleway text-xs tracking-widest uppercase" style={{ color: 'rgba(255,255,255,0.4)' }}>
-              Risk:{' '}
-            </span>
-            <span className="font-cinzel text-sm font-semibold" style={{ color: '#C9A84C' }}>
-              {result.risk_rating || 'MODERATE'}
-            </span>
-          </div>
+        {/* Risk assessment + CTA */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          {result.risk_assessment && (
+            <div className="flex-1">
+              <span className="font-raleway text-xs tracking-widest uppercase" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                Risk Assessment:{' '}
+              </span>
+              <p className="font-raleway text-xs mt-1 leading-relaxed" style={{ color: 'rgba(255,255,255,0.55)' }}>
+                {result.risk_assessment.slice(0, 300)}
+              </p>
+            </div>
+          )}
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 shrink-0">
             <button
-              className="flex items-center gap-2 font-raleway text-sm tracking-widest uppercase px-6 py-3 transition-all duration-300 hover:bg-gold/10"
+              className="flex items-center gap-2 font-raleway text-sm tracking-widest uppercase px-6 py-3 transition-all duration-300"
               style={{ border: '1px solid rgba(201,168,76,0.3)', color: '#C9A84C' }}
               data-hover
             >
@@ -557,56 +491,80 @@ export default function LiveAnalysisPage() {
   const [thoughtLines, setThoughtLines] = useState<ThoughtLine[]>([])
   const [bullLines, setBullLines] = useState<string[]>([])
   const [bearLines, setBearLines] = useState<string[]>([])
-  const [ticker, setTicker] = useState<string>(sessionId?.split('-')[0]?.toUpperCase() || 'STOCK')
   const timelineBottomRef = useRef<HTMLDivElement>(null)
   const lineCounter = useRef(0)
 
-  // Process incoming WebSocket events
+  // Read ticker from sessionStorage (stored by AnalyserPage before navigating)
+  const [ticker] = useState<string>(() => {
+    if (!sessionId) return 'STOCK'
+    return (
+      sessionStorage.getItem(`ticker_${sessionId}`) ||
+      sessionStorage.getItem('last_ticker') ||
+      'STOCK'
+    )
+  })
+
+  // ── Process incoming WebSocket events ────────────────────────────────────────
   useEffect(() => {
     const latest = events[events.length - 1]
     if (!latest) return
 
-    const newLine: ThoughtLine = {
-      agentName: latest.agent_name,
-      content: latest.content || JSON.stringify(latest.data || ''),
-      type: latest.type,
-      id: lineCounter.current++,
+    // Normalise field names — backend uses 'agent'+'message', not 'agent_id'+'content'
+    const agentId   = getAgentId(latest)
+    const agentText = getEventText(latest)
+    const agentName = agentId ? getAgentName(agentId, latest.agent_name) : undefined
+
+    // Add to thought stream (skip empty events like debate_start which have no text)
+    if (agentText || latest.type === 'debate_start') {
+      const displayText = agentText || (latest.type === 'debate_start' ? '⚔  Bull vs Bear debate begins' : '')
+      setThoughtLines((prev) => [
+        ...prev.slice(-300),
+        { agentName, content: displayText, type: latest.type, id: lineCounter.current++ },
+      ])
     }
-    setThoughtLines((prev) => [...prev.slice(-300), newLine])
 
     switch (latest.type) {
       case 'agent_start':
-        setAgents((prev) =>
-          prev.map((a) =>
-            a.id === latest.agent_id ? { ...a, status: 'running' } : a
-          )
-        )
+        if (agentId) {
+          setAgents((prev) => prev.map((a) => a.id === agentId ? { ...a, status: 'running' } : a))
+        }
         break
+
       case 'agent_complete':
-        setAgents((prev) =>
-          prev.map((a) =>
-            a.id === latest.agent_id
-              ? { ...a, status: 'complete', signal: latest.signal, summary: latest.summary }
-              : a
+        if (agentId) {
+          setAgents((prev) =>
+            prev.map((a) =>
+              a.id === agentId
+                ? {
+                    ...a,
+                    status: 'complete',
+                    signal: normalizeSignal(latest.signal),
+                    summary: latest.reasoning || latest.summary || agentText,
+                  }
+                : a
+            )
           )
-        )
-        timelineBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+          timelineBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+        }
         break
+
+      // Backend sends type="debate_message" + side="bull"|"bear"
+      case 'debate_message':
+        if (latest.side === 'bull' && agentText) setBullLines((prev) => [...prev, agentText])
+        if (latest.side === 'bear' && agentText) setBearLines((prev) => [...prev, agentText])
+        break
+
+      // Fallback for legacy event types
       case 'debate_bull':
-        if (latest.content) setBullLines((prev) => [...prev, latest.content!])
+        if (agentText) setBullLines((prev) => [...prev, agentText])
         break
       case 'debate_bear':
-        if (latest.content) setBearLines((prev) => [...prev, latest.content!])
+        if (agentText) setBearLines((prev) => [...prev, agentText])
         break
-    }
-
-    if (latest.agent_id) {
-      setTicker(latest.agent_id.includes('-') ? ticker : ticker)
     }
   }, [events.length]) // eslint-disable-line
 
   const completedCount = agents.filter((a) => a.status === 'complete').length
-  const totalAgents = agents.filter((a) => a.status !== 'pending' || completedCount > 0).length || PERSONAS.length
 
   return (
     <div className="min-h-screen pt-20 pb-16" style={{ background: '#0a0a0a' }}>
@@ -623,7 +581,6 @@ export default function LiveAnalysisPage() {
               </h1>
             </div>
 
-            {/* Progress / status */}
             <div className="flex items-center gap-4">
               {!isComplete && (
                 <div className="flex items-center gap-3">
@@ -659,10 +616,7 @@ export default function LiveAnalysisPage() {
           <div className="mt-4 h-px w-full" style={{ background: 'rgba(255,255,255,0.06)' }}>
             <motion.div
               className="h-full"
-              style={{
-                background: 'linear-gradient(90deg, #C9A84C, #FFD700)',
-                boxShadow: '0 0 8px rgba(201,168,76,0.4)',
-              }}
+              style={{ background: 'linear-gradient(90deg, #C9A84C, #FFD700)', boxShadow: '0 0 8px rgba(201,168,76,0.4)' }}
               animate={{ width: `${(completedCount / PERSONAS.length) * 100}%` }}
               transition={{ duration: 0.5 }}
             />
@@ -671,21 +625,20 @@ export default function LiveAnalysisPage() {
 
         {wsError && (
           <div
-            className="mb-6 px-5 py-4 font-raleway text-sm"
+            className="mb-6 px-5 py-4 font-raleway text-sm flex items-center gap-3"
             style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444' }}
           >
+            <AlertCircle size={16} />
             {wsError}
+            <Link to="/analyser" className="ml-auto underline text-xs">Start new analysis</Link>
           </div>
         )}
 
         {/* Two-column layout */}
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6" style={{ minHeight: '65vh' }}>
-          {/* Left — Agent Timeline (40%) */}
+          {/* Left — Agent Timeline */}
           <div className="lg:col-span-2 overflow-y-auto" style={{ maxHeight: '70vh' }}>
-            <div
-              className="p-5"
-              style={{ background: '#0d0d0d', border: '1px solid rgba(201,168,76,0.1)' }}
-            >
+            <div className="p-5" style={{ background: '#0d0d0d', border: '1px solid rgba(201,168,76,0.1)' }}>
               <p className="font-cinzel text-xs font-semibold tracking-widest uppercase mb-6" style={{ color: 'rgba(201,168,76,0.6)' }}>
                 Analyst Progress
               </p>
@@ -696,13 +649,13 @@ export default function LiveAnalysisPage() {
             </div>
           </div>
 
-          {/* Right — Thought Stream (60%) */}
+          {/* Right — Thought Stream */}
           <div className="lg:col-span-3" style={{ minHeight: '400px' }}>
             <ThoughtStream lines={thoughtLines} isConnected={isConnected} />
           </div>
         </div>
 
-        {/* Debate Section */}
+        {/* Debate */}
         <AnimatePresence>
           {(bullLines.length > 0 || bearLines.length > 0) && (
             <DebateSection bullLines={bullLines} bearLines={bearLines} />
@@ -716,8 +669,8 @@ export default function LiveAnalysisPage() {
           )}
         </AnimatePresence>
 
-        {/* Demo mode when no ws connection yet */}
-        {thoughtLines.length === 0 && !isConnected && (
+        {/* Waiting state */}
+        {thoughtLines.length === 0 && !isConnected && !wsError && (
           <div className="mt-8 text-center py-16">
             <motion.div
               animate={{ opacity: [0.3, 1, 0.3] }}
@@ -727,9 +680,6 @@ export default function LiveAnalysisPage() {
             >
               Connecting to analysis engine...
             </motion.div>
-            <p className="font-raleway text-xs mt-2" style={{ color: 'rgba(255,255,255,0.2)' }}>
-              Session: {sessionId}
-            </p>
           </div>
         )}
       </div>

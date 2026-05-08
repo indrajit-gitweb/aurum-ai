@@ -186,6 +186,9 @@ export default function AnalyserPage() {
   const handleStart = async () => {
     const sessionId = await startAnalysis()
     if (sessionId) {
+      // Persist ticker so LiveAnalysisPage can display it correctly
+      sessionStorage.setItem(`ticker_${sessionId}`, form.ticker)
+      sessionStorage.setItem('last_ticker', form.ticker)
       navigate(`/analyze/live/${sessionId}`)
     }
   }
