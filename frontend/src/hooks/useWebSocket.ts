@@ -43,7 +43,7 @@ export function useWebSocket(sessionId: string | null): UseWebSocketReturn {
   const connect = useCallback(() => {
     if (!sessionId) return
 
-    const wsUrl = BACKEND_URL.replace('http', 'ws') + `/ws/${sessionId}`
+    const wsUrl = BACKEND_URL.replace('http', 'ws') + `/ws/analyze/${sessionId}`
 
     try {
       const ws = new WebSocket(wsUrl)

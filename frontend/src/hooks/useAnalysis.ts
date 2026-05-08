@@ -104,14 +104,12 @@ export function useAnalysis(): UseAnalysisReturn {
         ticker: form.ticker,
         start_date: form.startDate,
         end_date: form.endDate,
-        analysts: form.selectedPersonas,
-        api_keys: {
-          ...(form.apiKeys.groq && { groq: form.apiKeys.groq }),
-          ...(form.apiKeys.gemini && { gemini: form.apiKeys.gemini }),
-          ...(form.apiKeys.openrouter && { openrouter: form.apiKeys.openrouter }),
-        },
+        personas: form.selectedPersonas,
+        ...(form.apiKeys.groq      && { user_groq_key:       form.apiKeys.groq }),
+        ...(form.apiKeys.gemini    && { user_gemini_key:     form.apiKeys.gemini }),
+        ...(form.apiKeys.openrouter && { user_openrouter_key: form.apiKeys.openrouter }),
       }
-      const res = await axios.post(`${BACKEND_URL}/analyze`, payload)
+      const res = await axios.post(`${BACKEND_URL}/api/analyze/start`, payload)
       const sessionId: string = res.data.session_id
       return sessionId
     } catch (e: unknown) {

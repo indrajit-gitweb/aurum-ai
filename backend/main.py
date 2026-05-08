@@ -254,8 +254,11 @@ async def analyze_websocket(websocket: WebSocket, session_id: str) -> None:
         from llm.router import LLMRouter
         from graph.trading_graph import TradingGraph
 
-        user_key, user_provider = _get_user_key_and_provider(request)
-        llm_router = LLMRouter(user_key=user_key, user_provider=user_provider)
+        llm_router = LLMRouter(
+            user_groq_key=request.user_groq_key,
+            user_gemini_key=request.user_gemini_key,
+            user_openrouter_key=request.user_openrouter_key,
+        )
 
         async def on_event(event: dict) -> None:
             """Forward graph events to the WebSocket client."""
