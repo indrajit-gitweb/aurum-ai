@@ -35,6 +35,7 @@ export interface FinalPersonaSignal {
   signal: string       // lowercase: 'bullish' | 'bearish' | 'neutral'
   confidence: number
   reasoning: string
+  key_points?: string[]
 }
 
 // FinalResult matches exactly what the backend sends in the final_result event
@@ -50,8 +51,17 @@ export interface FinalResult {
   persona_signals: FinalPersonaSignal[]
   research_synthesis?: string
   aggressive_risk?: string
+  aggressive_risk_signal?: string
+  aggressive_risk_confidence?: number
+  aggressive_risk_key_points?: string[]
   conservative_risk?: string
+  conservative_risk_signal?: string
+  conservative_risk_confidence?: number
+  conservative_risk_key_points?: string[]
   neutral_risk?: string
+  neutral_risk_signal?: string
+  neutral_risk_confidence?: number
+  neutral_risk_key_points?: string[]
 }
 
 export interface NewsItem {

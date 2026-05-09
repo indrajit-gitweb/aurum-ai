@@ -39,7 +39,7 @@ from data.yfinance_client import YFinanceClient
 from data.sec_edgar_client import SECEdgarClient
 from data.fred_client import FREDClient
 from llm.router import LLMRouter, AllProvidersExhaustedError
-from agents import PERSONA_REGISTRY, PERSONA_INFO, DEBATE_REGISTRY
+from agents import PERSONA_REGISTRY, PERSONA_INFO, DEBATE_REGISTRY, RISK_REGISTRY
 
 # Import main's Pydantic models (avoid circular — import lazily inside methods)
 # We re-define lightweight dataclasses here to keep the graph self-contained.
@@ -119,10 +119,22 @@ class AurumState(TypedDict, total=False):
     bear_arguments: list[str]
     research_synthesis: str
 
+    # Research Manager signal (for risk agents)
+    research_manager_signal: dict
+
     # Risk
     aggressive_view: str
     conservative_view: str
     neutral_view: str
+    aggressive_signal: str
+    aggressive_confidence: int
+    aggressive_key_points: list
+    conservative_signal: str
+    conservative_confidence: int
+    conservative_key_points: list
+    neutral_signal: str
+    neutral_confidence: int
+    neutral_key_points: list
 
     # Final
     verdict: str
@@ -141,6 +153,7 @@ class PersonaSignalDict:
     signal: str        # "bullish" | "bearish" | "neutral"
     confidence: int    # 0–100
     reasoning: str
+    key_points: list   # 3-5 bullet points from the model
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -160,8 +173,17 @@ class FinalResult:
     key_metrics: dict
     research_synthesis: str = ""
     aggressive_risk: str = ""
+    aggressive_risk_signal: str = ""
+    aggressive_risk_confidence: int = 0
+    aggressive_risk_key_points: list = field(default_factory=list)
     conservative_risk: str = ""
+    conservative_risk_signal: str = ""
+    conservative_risk_confidence: int = 0
+    conservative_risk_key_points: list = field(default_factory=list)
     neutral_risk: str = ""
+    neutral_risk_signal: str = ""
+    neutral_risk_confidence: int = 0
+    neutral_risk_key_points: list = field(default_factory=list)
 
     def dict(self) -> dict:
         return {
@@ -179,8 +201,17 @@ class FinalResult:
             "key_metrics": self.key_metrics,
             "research_synthesis": self.research_synthesis,
             "aggressive_risk": self.aggressive_risk,
+            "aggressive_risk_signal": self.aggressive_risk_signal,
+            "aggressive_risk_confidence": self.aggressive_risk_confidence,
+            "aggressive_risk_key_points": self.aggressive_risk_key_points,
             "conservative_risk": self.conservative_risk,
+            "conservative_risk_signal": self.conservative_risk_signal,
+            "conservative_risk_confidence": self.conservative_risk_confidence,
+            "conservative_risk_key_points": self.conservative_risk_key_points,
             "neutral_risk": self.neutral_risk,
+            "neutral_risk_signal": self.neutral_risk_signal,
+            "neutral_risk_confidence": self.neutral_risk_confidence,
+            "neutral_risk_key_points": self.neutral_risk_key_points,
         }
 
 
@@ -957,6 +988,7 @@ async def _node_persona(
             signal = result.signal
             confidence = result.confidence
             reasoning = result.reasoning
+            key_points = result.key_points
         except Exception as exc:
             logger.warning("Persona %s failed: %s", persona_id, exc)
             exc_str = str(exc)
@@ -971,6 +1003,7 @@ async def _node_persona(
                 reasoning = f"Analysis failed: {exc_str[:300]}"
                 confidence = 50
             signal = "neutral"
+            key_points = []
 
     await on_event(
         {
@@ -987,6 +1020,7 @@ async def _node_persona(
         signal=signal,
         confidence=confidence,
         reasoning=reasoning,
+        key_points=key_points if isinstance(key_points, list) else [],
     )
 
 
@@ -1181,6 +1215,11 @@ async def _node_research_manager(
             )
 
     state["research_synthesis"] = synthesis
+    state["research_manager_signal"] = {
+        "signal": signal_out,
+        "confidence": confidence_out,
+        "reasoning": synthesis[:500],
+    }
 
     await on_event(
         {
@@ -1199,54 +1238,82 @@ async def _node_risk(
     llm_router: LLMRouter,
     on_event: Callable,
 ) -> None:
-    """Run a risk-profile-specific view (aggressive / conservative / neutral)."""
-    profile_prompts = {
-        "aggressive": (
-            "You manage a high-conviction, concentrated portfolio.  "
-            "Assess position sizing for an aggressive growth investor.  "
-            "Focus on upside and acceptable drawdown."
-        ),
-        "conservative": (
-            "You manage a capital-preservation mandate.  "
-            "Assess downside risk, dividend safety, and balance-sheet strength.  "
-            "Highlight tail risks."
-        ),
-        "neutral": (
-            "You manage a balanced 60/40 portfolio.  "
-            "Assess risk/reward relative to market beta and portfolio fit."
-        ),
+    """Run a risk-profile-specific view using the dedicated risk agent class."""
+    profile_names = {
+        "aggressive": "Aggressive Risk Analyst",
+        "conservative": "Conservative Risk Analyst",
+        "neutral": "Neutral Risk Analyst",
     }
+    agent_key = f"{profile}_risk"
+    RiskClass = RISK_REGISTRY.get(agent_key)
 
-    await on_event(
-        {
-            "type": "agent_start",
-            "agent": f"risk_{profile}",
-            "message": f"{profile.title()} risk manager evaluating position...",
+    await on_event({
+        "type": "agent_start",
+        "agent": f"risk_{profile}",
+        "message": f"{profile_names.get(profile, profile.title())} evaluating position...",
+    })
+
+    if not RiskClass:
+        logger.warning("No risk agent found for profile: %s", profile)
+        state[f"{profile}_view"] = f"{profile.title()} risk assessment unavailable."  # type: ignore[literal-required]
+        state[f"{profile}_signal"] = "neutral"  # type: ignore[literal-required]
+        state[f"{profile}_confidence"] = 50  # type: ignore[literal-required]
+        state[f"{profile}_key_points"] = []  # type: ignore[literal-required]
+        return
+
+    try:
+        agent = RiskClass(llm_router)
+
+        # Build data package matching what each risk agent's analyze() expects
+        persona_signals_dict = {
+            s["agent"]: s for s in state.get("persona_signals", [])
         }
-    )
-
-    messages = [
-        {"role": "system", "content": profile_prompts[profile]},
-        {
-            "role": "user",
-            "content": (
-                f"Given the research synthesis below, provide a {profile} risk assessment "
-                f"for {state['ticker']} in 2–3 sentences:\n\n"
-                f"{state.get('research_synthesis', 'See analyst signals.')}"
-            ),
-        },
-    ]
-
-    view = await _async_llm_invoke(llm_router, messages, task_type="quick")
-    state[f"{profile}_view"] = view  # type: ignore[literal-required]
-
-    await on_event(
-        {
-            "type": "agent_progress",
-            "agent": f"risk_{profile}",
-            "message": view[:200],
+        data = {
+            "research_manager_signal": state.get("research_manager_signal", {
+                "signal": "neutral", "confidence": 50
+            }),
+            "bear_debate":             {"reasoning": "\n".join(state.get("bear_arguments", []))},
+            "bull_debate":             {"reasoning": "\n".join(state.get("bull_arguments", []))},
+            "key_metrics":             state.get("key_metrics", {}),
+            "price_data":              state.get("price_data", {}),
+            "balance_sheet":           state.get("balance_sheet", {}),
+            "company_info":            state.get("company_info", {}),
+            "technical_indicators":    state.get("technical_indicators", {}),
+            "persona_signals":         persona_signals_dict,
+            "macro_data":              state.get("macro_data", {}),
+            # Neutral agent uses aggressive + conservative views for balance
+            "aggressive_risk_signal":  {
+                "signal": state.get("aggressive_signal", "neutral"),
+                "reasoning": state.get("aggressive_view", ""),
+            },
+            "conservative_risk_signal": {
+                "signal": state.get("conservative_signal", "neutral"),
+                "reasoning": state.get("conservative_view", ""),
+            },
         }
-    )
+
+        result = await asyncio.to_thread(agent.analyze, state["ticker"], data)
+
+        state[f"{profile}_view"] = result.reasoning       # type: ignore[literal-required]
+        state[f"{profile}_signal"] = result.signal        # type: ignore[literal-required]
+        state[f"{profile}_confidence"] = result.confidence  # type: ignore[literal-required]
+        state[f"{profile}_key_points"] = result.key_points  # type: ignore[literal-required]
+
+        await on_event({
+            "type": "agent_complete",
+            "agent": f"risk_{profile}",
+            "signal": result.signal,
+            "confidence": result.confidence,
+            "reasoning": result.reasoning[:200] + ("..." if len(result.reasoning) > 200 else ""),
+        })
+
+    except Exception as exc:
+        logger.warning("Risk agent %s failed: %s", profile, exc)
+        fallback = f"{profile_names.get(profile, profile.title())} analysis unavailable: {str(exc)[:200]}"
+        state[f"{profile}_view"] = fallback  # type: ignore[literal-required]
+        state[f"{profile}_signal"] = "neutral"  # type: ignore[literal-required]
+        state[f"{profile}_confidence"] = 50  # type: ignore[literal-required]
+        state[f"{profile}_key_points"] = []  # type: ignore[literal-required]
 
 
 async def _node_portfolio_manager(
@@ -1368,8 +1435,17 @@ async def _node_portfolio_manager(
     )
     result.research_synthesis = state.get("research_synthesis", "")[:6000]
     result.aggressive_risk = state.get("aggressive_view", "")
+    result.aggressive_risk_signal = state.get("aggressive_signal", "")
+    result.aggressive_risk_confidence = state.get("aggressive_confidence", 0)
+    result.aggressive_risk_key_points = state.get("aggressive_key_points", [])
     result.conservative_risk = state.get("conservative_view", "")
+    result.conservative_risk_signal = state.get("conservative_signal", "")
+    result.conservative_risk_confidence = state.get("conservative_confidence", 0)
+    result.conservative_risk_key_points = state.get("conservative_key_points", [])
     result.neutral_risk = state.get("neutral_view", "")
+    result.neutral_risk_signal = state.get("neutral_signal", "")
+    result.neutral_risk_confidence = state.get("neutral_confidence", 0)
+    result.neutral_risk_key_points = state.get("neutral_key_points", [])
 
     await on_event(
         {
@@ -1492,6 +1568,7 @@ class TradingGraph:
                         reasoning=(
                             f"{persona_name} analysis timed out — no signal available."
                         ),
+                        key_points=[],
                     )
                 await asyncio.sleep(0.5)   # brief gap so provider quotas can breathe
                 return result
@@ -1506,6 +1583,7 @@ class TradingGraph:
                 "signal": p.signal,
                 "confidence": p.confidence,
                 "reasoning": p.reasoning,
+                "key_points": p.key_points if isinstance(p.key_points, list) else [],
             }
             for p in persona_results
         ]

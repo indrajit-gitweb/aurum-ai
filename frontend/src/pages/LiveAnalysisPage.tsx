@@ -614,9 +614,10 @@ function FinalResultBanner({ result, ticker, onExportPDF }: { result: FinalResul
                 const sigUp = (sig.signal || '').toUpperCase()
                 const color = sigUp === 'BULLISH' ? '#22c55e' : sigUp === 'BEARISH' ? '#ef4444' : '#C0C0C0'
                 const reasoning = cleanReasoning(sig.reasoning || '')
+                const keyPoints: string[] = Array.isArray(sig.key_points) ? sig.key_points : []
                 return (
                   <div key={sig.agent} style={{ border: `1px solid ${color}25`, background: `${color}04` }}>
-                    {/* Card header */}
+                    {/* Card header — name, style, signal badge */}
                     <div className="flex items-center gap-4 px-6 py-4"
                       style={{ borderBottom: `1px solid ${color}15` }}>
                       <div className="w-10 h-10 flex items-center justify-center flex-shrink-0 font-cinzel text-sm font-bold"
@@ -624,26 +625,59 @@ function FinalResultBanner({ result, ticker, onExportPDF }: { result: FinalResul
                         {persona?.initials || sig.agent.slice(0, 2).toUpperCase()}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="font-cinzel text-sm font-semibold text-white">
-                          {persona?.name || sig.agent}
-                        </p>
-                        <p className="font-raleway text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                          {persona?.style || ''}
-                        </p>
+                        <p className="font-cinzel text-sm font-semibold text-white">{persona?.name || sig.agent}</p>
+                        <p className="font-raleway text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>{persona?.style || ''}</p>
                       </div>
-                      <div className="flex items-center gap-3 flex-shrink-0">
-                        <span className="font-cinzel text-xs font-bold tracking-widest uppercase px-3 py-1"
-                          style={{ background: `${color}15`, color, border: `1px solid ${color}30` }}>
-                          {sigUp}
-                        </span>
-                        <span className="font-raleway text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                          {sig.confidence}% confidence
-                        </span>
-                      </div>
+                      <span className="font-cinzel text-xs font-bold tracking-widest uppercase px-3 py-1 flex-shrink-0"
+                        style={{ background: `${color}15`, color, border: `1px solid ${color}30` }}>
+                        {sigUp}
+                      </span>
                     </div>
-                    {/* Full reasoning */}
-                    <div className="px-6 py-5">
-                      {renderMarkdown(reasoning)}
+
+                    {/* Card body */}
+                    <div className="px-6 py-5 space-y-5">
+                      {/* SIGNAL / CONFIDENCE inline */}
+                      <div className="flex flex-wrap gap-6">
+                        <div className="flex items-center gap-2">
+                          <span className="font-cinzel text-xs font-bold tracking-widest uppercase" style={{ color: '#C9A84C' }}>Signal</span>
+                          <span style={{ color: 'rgba(201,168,76,0.4)' }}>————</span>
+                          <span className="font-raleway text-sm font-semibold" style={{ color }}>{sigUp}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-cinzel text-xs font-bold tracking-widest uppercase" style={{ color: '#C9A84C' }}>Confidence</span>
+                          <span style={{ color: 'rgba(201,168,76,0.4)' }}>————</span>
+                          <span className="font-raleway text-sm font-semibold" style={{ color: 'rgba(255,255,255,0.85)' }}>{sig.confidence}%</span>
+                        </div>
+                      </div>
+
+                      {/* REASONING */}
+                      {reasoning && (
+                        <div>
+                          <div className="font-cinzel text-xs font-bold tracking-widest uppercase mb-2 pb-1"
+                            style={{ color: '#C9A84C', borderBottom: '1px solid rgba(201,168,76,0.2)' }}>
+                            Reasoning
+                          </div>
+                          <div>{renderMarkdown(reasoning)}</div>
+                        </div>
+                      )}
+
+                      {/* KEY POINTS */}
+                      {keyPoints.length > 0 && (
+                        <div>
+                          <div className="font-cinzel text-xs font-bold tracking-widest uppercase mb-2 pb-1"
+                            style={{ color: '#C9A84C', borderBottom: '1px solid rgba(201,168,76,0.2)' }}>
+                            Key Points
+                          </div>
+                          <div className="space-y-1.5">
+                            {keyPoints.map((kp, i) => (
+                              <div key={i} className="flex gap-2">
+                                <span className="flex-shrink-0 mt-0.5" style={{ color: '#C9A84C' }}>▸</span>
+                                <p className="font-raleway text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.65)' }}>{kp}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )
@@ -652,43 +686,160 @@ function FinalResultBanner({ result, ticker, onExportPDF }: { result: FinalResul
           </div>
         )}
 
-        {/* ── Risk Analysis — 3 sections ────────────────────────────── */}
+        {/* ── Risk Analysis — 3 columns ──────────────────────────────── */}
         {(result.aggressive_risk || result.conservative_risk || result.neutral_risk || result.risk_assessment) && (
           <div className="mb-8">
             <p className="font-cinzel text-sm font-semibold mb-4 tracking-widest uppercase"
               style={{ color: 'rgba(201,168,76,0.7)', borderBottom: '1px solid rgba(201,168,76,0.1)', paddingBottom: '8px' }}>
               Risk Analysis
             </p>
-            {/* If separate risk views available */}
             {(result.aggressive_risk || result.conservative_risk || result.neutral_risk) ? (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {result.aggressive_risk && (
-                  <div className="p-4" style={{ background: 'rgba(239,68,68,0.04)', border: '1px solid rgba(239,68,68,0.15)' }}>
-                    <p className="font-cinzel text-xs font-bold mb-3 tracking-widest uppercase" style={{ color: '#ef4444' }}>
-                      Aggressive
-                    </p>
-                    <div>{renderMarkdown(result.aggressive_risk)}</div>
-                  </div>
-                )}
-                {result.conservative_risk && (
-                  <div className="p-4" style={{ background: 'rgba(34,197,94,0.04)', border: '1px solid rgba(34,197,94,0.15)' }}>
-                    <p className="font-cinzel text-xs font-bold mb-3 tracking-widest uppercase" style={{ color: '#22c55e' }}>
-                      Conservative
-                    </p>
-                    <div>{renderMarkdown(result.conservative_risk)}</div>
-                  </div>
-                )}
-                {result.neutral_risk && (
-                  <div className="p-4" style={{ background: 'rgba(201,168,76,0.04)', border: '1px solid rgba(201,168,76,0.15)' }}>
-                    <p className="font-cinzel text-xs font-bold mb-3 tracking-widest uppercase" style={{ color: '#C9A84C' }}>
-                      Neutral
-                    </p>
-                    <div>{renderMarkdown(result.neutral_risk)}</div>
-                  </div>
-                )}
+                {/* Aggressive */}
+                {result.aggressive_risk && (() => {
+                  const rSig = (result.aggressive_risk_signal || '').toUpperCase()
+                  const rColor = rSig === 'BULLISH' ? '#22c55e' : rSig === 'BEARISH' ? '#ef4444' : '#ef4444'
+                  const rKP: string[] = Array.isArray(result.aggressive_risk_key_points) ? result.aggressive_risk_key_points : []
+                  return (
+                    <div style={{ background: 'rgba(239,68,68,0.04)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                      <div className="px-4 py-3" style={{ borderBottom: '1px solid rgba(239,68,68,0.15)' }}>
+                        <p className="font-cinzel text-xs font-bold tracking-widest uppercase" style={{ color: '#ef4444' }}>Aggressive</p>
+                      </div>
+                      <div className="px-4 py-4 space-y-4">
+                        {/* Signal / Confidence */}
+                        {rSig && (
+                          <div className="flex flex-wrap gap-4">
+                            <div className="flex items-center gap-2">
+                              <span className="font-cinzel text-xs font-bold tracking-wider uppercase" style={{ color: '#C9A84C' }}>Signal</span>
+                              <span style={{ color: 'rgba(201,168,76,0.4)' }}>——</span>
+                              <span className="font-raleway text-xs font-semibold" style={{ color: rColor }}>{rSig}</span>
+                            </div>
+                            {(result.aggressive_risk_confidence ?? 0) > 0 && (
+                              <div className="flex items-center gap-2">
+                                <span className="font-cinzel text-xs font-bold tracking-wider uppercase" style={{ color: '#C9A84C' }}>Confidence</span>
+                                <span style={{ color: 'rgba(201,168,76,0.4)' }}>——</span>
+                                <span className="font-raleway text-xs font-semibold" style={{ color: 'rgba(255,255,255,0.85)' }}>{result.aggressive_risk_confidence}%</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {/* Full prose + ratio sections */}
+                        <div>{renderMarkdown(result.aggressive_risk)}</div>
+                        {/* Key points */}
+                        {rKP.length > 0 && (
+                          <div>
+                            <div className="font-cinzel text-xs font-bold tracking-widest uppercase mb-2 pb-1"
+                              style={{ color: '#C9A84C', borderBottom: '1px solid rgba(201,168,76,0.2)' }}>Key Points</div>
+                            <div className="space-y-1">
+                              {rKP.map((kp, i) => (
+                                <div key={i} className="flex gap-2">
+                                  <span className="flex-shrink-0" style={{ color: '#C9A84C' }}>▸</span>
+                                  <p className="font-raleway text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.6)' }}>{kp}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })()}
+
+                {/* Conservative */}
+                {result.conservative_risk && (() => {
+                  const rSig = (result.conservative_risk_signal || '').toUpperCase()
+                  const rColor = rSig === 'BULLISH' ? '#22c55e' : rSig === 'BEARISH' ? '#ef4444' : '#C0C0C0'
+                  const rKP: string[] = Array.isArray(result.conservative_risk_key_points) ? result.conservative_risk_key_points : []
+                  return (
+                    <div style={{ background: 'rgba(34,197,94,0.04)', border: '1px solid rgba(34,197,94,0.2)' }}>
+                      <div className="px-4 py-3" style={{ borderBottom: '1px solid rgba(34,197,94,0.15)' }}>
+                        <p className="font-cinzel text-xs font-bold tracking-widest uppercase" style={{ color: '#22c55e' }}>Conservative</p>
+                      </div>
+                      <div className="px-4 py-4 space-y-4">
+                        {rSig && (
+                          <div className="flex flex-wrap gap-4">
+                            <div className="flex items-center gap-2">
+                              <span className="font-cinzel text-xs font-bold tracking-wider uppercase" style={{ color: '#C9A84C' }}>Signal</span>
+                              <span style={{ color: 'rgba(201,168,76,0.4)' }}>——</span>
+                              <span className="font-raleway text-xs font-semibold" style={{ color: rColor }}>{rSig}</span>
+                            </div>
+                            {(result.conservative_risk_confidence ?? 0) > 0 && (
+                              <div className="flex items-center gap-2">
+                                <span className="font-cinzel text-xs font-bold tracking-wider uppercase" style={{ color: '#C9A84C' }}>Confidence</span>
+                                <span style={{ color: 'rgba(201,168,76,0.4)' }}>——</span>
+                                <span className="font-raleway text-xs font-semibold" style={{ color: 'rgba(255,255,255,0.85)' }}>{result.conservative_risk_confidence}%</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        <div>{renderMarkdown(result.conservative_risk)}</div>
+                        {rKP.length > 0 && (
+                          <div>
+                            <div className="font-cinzel text-xs font-bold tracking-widest uppercase mb-2 pb-1"
+                              style={{ color: '#C9A84C', borderBottom: '1px solid rgba(201,168,76,0.2)' }}>Key Points</div>
+                            <div className="space-y-1">
+                              {rKP.map((kp, i) => (
+                                <div key={i} className="flex gap-2">
+                                  <span className="flex-shrink-0" style={{ color: '#C9A84C' }}>▸</span>
+                                  <p className="font-raleway text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.6)' }}>{kp}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })()}
+
+                {/* Neutral */}
+                {result.neutral_risk && (() => {
+                  const rSig = (result.neutral_risk_signal || '').toUpperCase()
+                  const rColor = rSig === 'BULLISH' ? '#22c55e' : rSig === 'BEARISH' ? '#ef4444' : '#C9A84C'
+                  const rKP: string[] = Array.isArray(result.neutral_risk_key_points) ? result.neutral_risk_key_points : []
+                  return (
+                    <div style={{ background: 'rgba(201,168,76,0.04)', border: '1px solid rgba(201,168,76,0.2)' }}>
+                      <div className="px-4 py-3" style={{ borderBottom: '1px solid rgba(201,168,76,0.15)' }}>
+                        <p className="font-cinzel text-xs font-bold tracking-widest uppercase" style={{ color: '#C9A84C' }}>Neutral</p>
+                      </div>
+                      <div className="px-4 py-4 space-y-4">
+                        {rSig && (
+                          <div className="flex flex-wrap gap-4">
+                            <div className="flex items-center gap-2">
+                              <span className="font-cinzel text-xs font-bold tracking-wider uppercase" style={{ color: '#C9A84C' }}>Signal</span>
+                              <span style={{ color: 'rgba(201,168,76,0.4)' }}>——</span>
+                              <span className="font-raleway text-xs font-semibold" style={{ color: rColor }}>{rSig}</span>
+                            </div>
+                            {(result.neutral_risk_confidence ?? 0) > 0 && (
+                              <div className="flex items-center gap-2">
+                                <span className="font-cinzel text-xs font-bold tracking-wider uppercase" style={{ color: '#C9A84C' }}>Confidence</span>
+                                <span style={{ color: 'rgba(201,168,76,0.4)' }}>——</span>
+                                <span className="font-raleway text-xs font-semibold" style={{ color: 'rgba(255,255,255,0.85)' }}>{result.neutral_risk_confidence}%</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        <div>{renderMarkdown(result.neutral_risk)}</div>
+                        {rKP.length > 0 && (
+                          <div>
+                            <div className="font-cinzel text-xs font-bold tracking-widest uppercase mb-2 pb-1"
+                              style={{ color: '#C9A84C', borderBottom: '1px solid rgba(201,168,76,0.2)' }}>Key Points</div>
+                            <div className="space-y-1">
+                              {rKP.map((kp, i) => (
+                                <div key={i} className="flex gap-2">
+                                  <span className="flex-shrink-0" style={{ color: '#C9A84C' }}>▸</span>
+                                  <p className="font-raleway text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.6)' }}>{kp}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             ) : (
-              /* Fallback: render combined risk_assessment as markdown */
               <div className="p-5" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)' }}>
                 <div>{renderMarkdown(result.risk_assessment || '')}</div>
               </div>
