@@ -74,6 +74,20 @@ class BurryAgent(BaseAgent):
         cash_flow = data.get("cash_flow", {})
         company = data.get("company_info", {})
         price_data = data.get("price_data", {})
+        insiders = data.get("insider_transactions", [])
+        filing_text = data.get("filing_text_excerpt", "")
+
+        buys  = [t for t in insiders if t.get("transaction_type") == "buy"]
+        sells = [t for t in insiders if t.get("transaction_type") == "sell"]
+        insider_detail = "\n".join(
+            f"  {t['date']} {t['name']} ({t['role']}): {t['transaction_type'].upper()} ${t['value']:,.0f}"
+            for t in insiders[:6]
+        ) or "  None on record"
+
+        filing_section = (
+            f"\n10-K FILING EXCERPT (look for hidden risks and off-balance-sheet items):\n{filing_text[:2000]}\n"
+            if filing_text else ""
+        )
 
         prompt = f"""Burry, dig into {ticker} — {company.get('name', ticker)}. Find what the market is missing.
 
@@ -119,8 +133,12 @@ CATALYST:
   Buyback Programme: {metrics.get('buybacks_3yr', 'N/A')}
   Asset Sales Potential: {company.get('asset_monetisation', 'N/A')}
   Management Change: {company.get('recent_management_change', 'N/A')}
-  Insider Buying: {company.get('recent_insider_buying', 'N/A')}
+  Insider Transactions ({len(buys)} buys / {len(sells)} sells):
+{insider_detail}
 
+MULTI-YEAR REVENUE TREND (SEC EDGAR):
+  {metrics.get('revenue_history_5yr', 'N/A')}
+{filing_section}
 Why is this stock where it is? What is the crowd getting wrong?
 Is the FCF yield compelling? What are the hard assets worth?
 What is the catalyst? What are the debt traps?

@@ -60,6 +60,21 @@ class BuffettAgent(BaseAgent):
         balance = data.get("balance_sheet", {})
         cash_flow = data.get("cash_flow", {})
         company = data.get("company_info", {})
+        insiders = data.get("insider_transactions", [])
+        filing_text = data.get("filing_text_excerpt", "")
+
+        # Summarise recent insider activity
+        buys  = [t for t in insiders if t.get("transaction_type") == "buy"]
+        sells = [t for t in insiders if t.get("transaction_type") == "sell"]
+        insider_summary = (
+            f"{len(buys)} buy(s) / {len(sells)} sell(s) in last 90 days — "
+            + (f"largest buy: ${max((t['value'] for t in buys), default=0):,.0f}" if buys else "no open-market buys")
+        )
+
+        filing_section = (
+            f"\n10-K FILING EXCERPT (Risk Factors / MD&A):\n{filing_text[:2000]}\n"
+            if filing_text else ""
+        )
 
         prompt = f"""Warren, what do you think about {ticker} — {company.get('name', ticker)}?
 
@@ -67,14 +82,20 @@ BUSINESS OVERVIEW:
   Sector: {company.get('sector', 'N/A')}
   Industry: {company.get('industry', 'N/A')}
   Business Description: {company.get('description', 'N/A')}
-  Years in Operation: {company.get('years_public', 'N/A')}
 
 MOAT & COMPETITIVE POSITION:
   Gross Margin (pricing power proxy): {income.get('gross_margin', 'N/A')}
   Operating Margin: {income.get('operating_margin', 'N/A')}
-  ROE (5-year avg): {metrics.get('roe_5yr_avg', metrics.get('roe', 'N/A'))}
+  ROE: {metrics.get('roe_5yr_avg', metrics.get('roe', 'N/A'))}
   ROIC: {metrics.get('roic', 'N/A')}
   Revenue Growth (5yr CAGR): {metrics.get('revenue_cagr_5yr', 'N/A')}
+
+MULTI-YEAR REVENUE TREND (SEC EDGAR audited):
+  {metrics.get('revenue_history_5yr', 'N/A')}
+
+MULTI-YEAR NET INCOME TREND (SEC EDGAR audited):
+  {metrics.get('net_income_history_5yr', 'N/A')}
+  Net Income Growth YoY: {metrics.get('net_income_growth_yoy', 'N/A')}
 
 OWNER EARNINGS & CASH GENERATION:
   Net Income: {income.get('net_income', 'N/A')}
@@ -82,29 +103,24 @@ OWNER EARNINGS & CASH GENERATION:
   CapEx: {cash_flow.get('capex', 'N/A')}
   Free Cash Flow: {cash_flow.get('fcf', 'N/A')}
   FCF Margin: {cash_flow.get('fcf_margin', 'N/A')}
-  FCF Growth YoY: {cash_flow.get('fcf_growth_yoy', 'N/A')}
 
 BALANCE SHEET FORTRESS:
   Long-Term Debt: {balance.get('long_term_debt', 'N/A')}
   Debt/Equity: {balance.get('debt_equity', 'N/A')}
   Cash & Investments: {balance.get('cash', 'N/A')}
-  Interest Coverage: {metrics.get('interest_coverage', 'N/A')}
 
 VALUATION (vs your intrinsic value estimate):
   P/E Ratio: {metrics.get('pe_ratio', 'N/A')}
   P/B Ratio: {metrics.get('pb_ratio', 'N/A')}
   EV/EBITDA: {metrics.get('ev_ebitda', 'N/A')}
   FCF Yield: {metrics.get('fcf_yield', 'N/A')}
-  Earnings Yield: {metrics.get('earnings_yield', 'N/A')}
-  5-Year DCF Implied Upside: {metrics.get('dcf_upside', 'N/A')}
 
-MANAGEMENT:
-  CEO Tenure: {company.get('ceo_tenure', 'N/A')}
-  Insider Ownership: {company.get('insider_ownership', 'N/A')}
+MANAGEMENT & INSIDER ACTIVITY:
+  Insider Transactions: {insider_summary}
   Share Buybacks (last 3yr): {metrics.get('buybacks_3yr', 'N/A')}
   Dividend History: {metrics.get('dividend_history', 'N/A')}
-
-Would you buy the entire business at today's price? Is there a moat? Is management trustworthy?
+{filing_section}
+Would you buy the entire business at today's price? Is there a durable moat? Is management trustworthy?
 Is there a 30%+ margin of safety? Is this within your circle of competence?
 Respond in your authentic voice as the JSON object specified.
 """

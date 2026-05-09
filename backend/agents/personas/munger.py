@@ -63,6 +63,12 @@ class MungerAgent(BaseAgent):
         balance = data.get("balance_sheet", {})
         cash_flow = data.get("cash_flow", {})
         company = data.get("company_info", {})
+        filing_text = data.get("filing_text_excerpt", "")
+
+        filing_section = (
+            f"\n10-K FILING EXCERPT (management tone, risks, capital allocation language):\n{filing_text[:2000]}\n"
+            if filing_text else ""
+        )
 
         prompt = f"""Charlie, apply your full mental model latticework to {ticker} — {company.get('name', ticker)}.
 
@@ -77,7 +83,10 @@ QUALITY METRICS:
   Operating Margin: {income.get('operating_margin', 'N/A')}
   ROE: {metrics.get('roe', 'N/A')}
   ROIC: {metrics.get('roic', 'N/A')}
-  Revenue Growth (3yr): {metrics.get('revenue_cagr_3yr', 'N/A')}
+  Revenue Growth (3yr CAGR): {metrics.get('revenue_cagr_3yr', 'N/A')}
+  Revenue Growth (5yr CAGR): {metrics.get('revenue_cagr_5yr', 'N/A')}
+  Revenue Trend (SEC audited): {metrics.get('revenue_history_5yr', 'N/A')}
+  Net Income Trend (SEC audited): {metrics.get('net_income_history_5yr', 'N/A')}
   EPS Growth (3yr): {metrics.get('eps_cagr_3yr', 'N/A')}
 
 FCF & CAPITAL ALLOCATION:
@@ -100,7 +109,7 @@ MANAGEMENT & INCENTIVES:
   CEO Compensation structure: {company.get('ceo_compensation', 'N/A')}
   Insider Ownership: {company.get('insider_ownership', 'N/A')}
   Track record: {company.get('management_track_record', 'N/A')}
-
+{filing_section}
 Apply inversion first: what could go catastrophically wrong? What are the psychological biases that might
 make this look more attractive than it is? What mental models are most relevant here?
 Then build your case. Be Munger.

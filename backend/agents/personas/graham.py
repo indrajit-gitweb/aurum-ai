@@ -68,6 +68,12 @@ class GrahamAgent(BaseAgent):
         income = data.get("income_statement", {})
         balance = data.get("balance_sheet", {})
         company = data.get("company_info", {})
+        filing_text = data.get("filing_text_excerpt", "")
+
+        filing_section = (
+            f"\n10-K FILING EXCERPT (balance sheet quality and earnings consistency):\n{filing_text[:2000]}\n"
+            if filing_text else ""
+        )
 
         # BUG-05 fix: yfinance normalises to 'diluted_eps', not 'eps_diluted'
         eps = income.get("diluted_eps", income.get("eps", "N/A"))
@@ -114,6 +120,13 @@ EARNINGS HISTORY:
   Dividend History (years): {metrics.get('dividend_years', 'N/A')}
   EPS Stability: {metrics.get('eps_stability', 'N/A')}
 
+MULTI-YEAR REVENUE TREND (SEC EDGAR audited — 10 years of consistency required):
+  {metrics.get('revenue_history_5yr', 'N/A')}
+
+MULTI-YEAR NET INCOME TREND (SEC EDGAR audited):
+  {metrics.get('net_income_history_5yr', 'N/A')}
+  Net Income Growth YoY: {metrics.get('net_income_growth_yoy', 'N/A')}
+{filing_section}
 COMPANY:
   Market Cap: {company.get('market_cap', 'N/A')}
   Sector: {company.get('sector', 'N/A')}

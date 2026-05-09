@@ -312,15 +312,16 @@ class YFinanceClient:
     # News
     # ─────────────────────────────────────────────────────────────────────────
 
-    def get_news(self, ticker: Optional[str] = None, limit: int = 10) -> list[dict]:
+    def get_news(self, ticker: Optional[str] = None, limit: int = 20) -> list[dict]:
         """Return recent news headlines for the ticker.
 
         Args:
             ticker: Optional override ticker.
-            limit: Maximum number of articles to return.
+            limit: Maximum number of articles to return (default raised to 20).
 
         Returns:
-            List of dicts with keys: title, publisher, link, providerPublishTime.
+            List of dicts with normalised keys including ``headline`` and ``date``
+            aliases so all persona agents can access them uniformly.
             Empty list on failure.
         """
         client = yf.Ticker(ticker.upper()) if ticker else self._yf
@@ -328,18 +329,87 @@ class YFinanceClient:
             raw = client.news or []
             result = []
             for article in raw[:limit]:
+                # Convert Unix timestamp → ISO date string "YYYY-MM-DD"
+                ts = article.get("providerPublishTime")
+                try:
+                    date_str = datetime.utcfromtimestamp(int(ts)).strftime("%Y-%m-%d") if ts else "N/A"
+                except Exception:
+                    date_str = "N/A"
+
+                title = article.get("title", "")
                 result.append(
                     {
-                        "title": article.get("title", ""),
-                        "publisher": article.get("publisher", ""),
-                        "link": article.get("link", ""),
-                        "published_at": article.get("providerPublishTime"),
-                        "summary": article.get("summary", ""),
+                        # Primary fields
+                        "title":        title,
+                        "headline":     title,          # alias — News Sentiment uses "headline"
+                        "date":         date_str,       # alias — News Sentiment uses "date"
+                        "publisher":    article.get("publisher", ""),
+                        "link":         article.get("link", ""),
+                        "published_at": date_str,
+                        "summary":      article.get("summary", ""),
                     }
                 )
             return result
         except Exception as exc:
             logger.warning("[%s] get_news failed: %s", self.ticker, exc)
+            return []
+
+    def get_insider_transactions(self, ticker: Optional[str] = None) -> list[dict]:
+        """Return recent insider buy/sell transactions.
+
+        Uses yfinance's ``insider_transactions`` DataFrame.  Normalises column
+        names across yfinance versions and classifies each transaction as
+        buy / sell / other based on the description text.
+
+        Returns:
+            List of dicts with keys: name, role, date, transaction_type,
+            shares, value, description.  Empty list on failure or no data.
+        """
+        client = yf.Ticker(ticker.upper()) if ticker else self._yf
+        try:
+            df = client.insider_transactions
+            if df is None or (hasattr(df, "empty") and df.empty):
+                return []
+
+            result = []
+            for _, row in df.iterrows():
+                # Column names vary across yfinance versions
+                name  = str(row.get("Insider",   row.get("Name",     "Unknown")))
+                role  = str(row.get("Position",  row.get("Title",    "N/A")))
+                date_raw = row.get("Start Date", row.get("Date",     None))
+                try:
+                    date_str = str(date_raw)[:10] if date_raw is not None else "N/A"
+                except Exception:
+                    date_str = "N/A"
+
+                text   = str(row.get("Text", row.get("Transaction", "")))
+                shares = row.get("Shares", 0) or 0
+                value  = row.get("Value",  0) or 0
+
+                text_lower = text.lower()
+                if any(k in text_lower for k in ["purchase", "buy", "bought", "automatic buy", "direct purchase"]):
+                    txn_type = "buy"
+                elif any(k in text_lower for k in ["sale", "sell", "sold", "automatic sell", "direct sale"]):
+                    txn_type = "sell"
+                else:
+                    txn_type = "other"
+
+                result.append(
+                    {
+                        "name":             name,
+                        "role":             role,
+                        "date":             date_str,
+                        "transaction_type": txn_type,
+                        "action":           txn_type,       # alias
+                        "shares":           int(abs(shares)) if shares else 0,
+                        "value":            abs(float(value)) if value else 0,
+                        "total_value":      abs(float(value)) if value else 0,  # alias
+                        "description":      text,
+                    }
+                )
+            return result[:15]   # most recent 15 transactions
+        except Exception as exc:
+            logger.warning("[%s] get_insider_transactions failed: %s", self.ticker, exc)
             return []
 
     # ─────────────────────────────────────────────────────────────────────────

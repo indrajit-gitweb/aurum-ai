@@ -74,9 +74,11 @@ class AurumState(TypedDict, total=False):
     income_statement: dict
     cashflow: dict
     news: list[dict]
+    insider_transactions: list[dict]
     technical_indicators: dict
     sec_facts: dict
     sec_filings: list[dict]
+    filing_text_excerpt: str    # first ~3 000 chars of the most recent 10-K
     macro_summary: str
     yield_curve: dict
 
@@ -365,10 +367,29 @@ async def _node_fundamentals(state: AurumState, on_event: Callable) -> None:
         )
         state["sec_facts"] = sec_facts
         state["sec_filings"] = sec_filings
+
+        # Fetch the first ~3 000 chars of the most recent 10-K (Risk Factors / MD&A)
+        # Only for the four deep-value personas — a targeted extra HTTP call.
+        filing_text_excerpt = ""
+        if sec_filings:
+            await asyncio.sleep(0.6)   # SEC rate-limit courtesy
+            try:
+                filing_text_excerpt = await asyncio.to_thread(
+                    functools.partial(
+                        sec.get_filing_text,
+                        accession_number=sec_filings[0]["accession_number"],
+                        max_chars=3000,
+                    )
+                )
+            except Exception as exc_ft:
+                logger.warning("10-K filing text fetch failed: %s", exc_ft)
+        state["filing_text_excerpt"] = filing_text_excerpt
+
     except Exception as exc:
         logger.warning("SEC EDGAR fetch failed: %s", exc)
         state["sec_facts"] = {}
         state["sec_filings"] = []
+        state["filing_text_excerpt"] = ""
 
     await on_event(
         {
@@ -413,18 +434,28 @@ async def _node_news(state: AurumState, on_event: Callable) -> None:
         {
             "type": "agent_start",
             "agent": "news_analyst",
-            "message": f"Fetching latest news for {state['ticker']}...",
+            "message": f"Fetching latest news and insider transactions for {state['ticker']}...",
         }
     )
-    yf = YFinanceClient(state["ticker"])
-    state["news"] = await asyncio.to_thread(functools.partial(yf.get_news, limit=10))
+    yf_client = YFinanceClient(state["ticker"])
+    # Fetch news (20 articles) and insider transactions concurrently
+    news, insider_txns = await asyncio.gather(
+        asyncio.to_thread(functools.partial(yf_client.get_news, limit=20)),
+        asyncio.to_thread(yf_client.get_insider_transactions),
+    )
+    state["news"] = news
+    state["insider_transactions"] = insider_txns
+
     await on_event(
         {
             "type": "agent_complete",
             "agent": "news_analyst",
             "signal": "neutral",
             "confidence": 100,
-            "reasoning": f"Retrieved {len(state.get('news', []))} news articles.",
+            "reasoning": (
+                f"Retrieved {len(state.get('news', []))} news articles and "
+                f"{len(state.get('insider_transactions', []))} insider transactions."
+            ),
         }
     )
 
@@ -536,6 +567,44 @@ async def _node_persona(
                 wacc             = None
                 roic_wacc_spread = None
 
+            # ── Enrich fund_enriched with multi-year trends from SEC EDGAR XBRL ──
+            # sec_facts has audited annual data going back 8 years — use it to
+            # populate the CAGR fields that Buffett/Munger/Graham prompts reference.
+            sec_facts = state.get("sec_facts", {})
+            try:
+                rev_series = [r for r in sec_facts.get("revenue", []) if r.get("val")]
+                ni_series  = [r for r in sec_facts.get("net_income", []) if r.get("val")]
+
+                if len(rev_series) >= 4:
+                    rev_vals = [r["val"] for r in rev_series]
+                    # 3-year CAGR (index 0 = latest, index 3 = 3 years ago)
+                    cagr_3yr = (rev_vals[0] / rev_vals[3]) ** (1 / 3) - 1
+                    fund.setdefault("revenue_cagr_3yr", f"{cagr_3yr:+.1%}")
+                if len(rev_series) >= 6:
+                    cagr_5yr = (rev_vals[0] / rev_vals[5]) ** (1 / 5) - 1
+                    fund.setdefault("revenue_cagr_5yr", f"{cagr_5yr:+.1%}")
+
+                # Human-readable revenue history string: "2024: $383B | 2023: $394B | ..."
+                if rev_series:
+                    rev_hist = " | ".join(
+                        f"{r['end'][:4]}: ${r['val']/1e9:.1f}B"
+                        for r in rev_series[:5]
+                    )
+                    fund.setdefault("revenue_history_5yr", rev_hist)
+
+                if len(ni_series) >= 2:
+                    ni_vals = [r["val"] for r in ni_series]
+                    ni_hist = " | ".join(
+                        f"{r['end'][:4]}: ${r['val']/1e9:.1f}B"
+                        for r in ni_series[:5]
+                    )
+                    fund.setdefault("net_income_history_5yr", ni_hist)
+                    if ni_vals[1] and ni_vals[1] != 0:
+                        ni_growth = ni_vals[0] / ni_vals[1] - 1
+                        fund.setdefault("net_income_growth_yoy", f"{ni_growth:+.1%}")
+            except Exception as exc_sec:
+                logger.debug("SEC CAGR enrichment skipped: %s", exc_sec)
+
             fund_enriched = {
                 **fund,
                 "wacc":            round(wacc, 4) if wacc is not None else None,
@@ -546,21 +615,31 @@ async def _node_persona(
                 "bvps":            fund.get("bvps"),
             }
 
+            # Personas that benefit from raw 10-K risk factor / MD&A text
+            FILING_TEXT_PERSONAS = {"buffett", "graham", "burry", "munger"}
+            filing_text = (
+                state.get("filing_text_excerpt", "")
+                if persona_id in FILING_TEXT_PERSONAS else ""
+            )
+
             data = {
-                "fundamentals": fund_enriched,
-                "balance_sheet": state.get("balance_sheet", {}),
-                "income_statement": inc_enriched,
-                "cashflow": cf_enriched,
+                "fundamentals":        fund_enriched,
+                "balance_sheet":       state.get("balance_sheet", {}),
+                "income_statement":    inc_enriched,
+                "cashflow":            cf_enriched,
                 "technical_indicators": tech,
-                "news": state.get("news", []),
-                "macro_summary": state.get("macro_summary", ""),
-                "sec_facts": state.get("sec_facts", {}),
-                "price_data": price_data,
-                "yield_curve": yield_curve,
+                "news":                state.get("news", []),
+                "news_articles":       state.get("news", []),       # alias
+                "insider_transactions": state.get("insider_transactions", []),
+                "macro_summary":       state.get("macro_summary", ""),
+                "sec_facts":           sec_facts,
+                "filing_text_excerpt": filing_text,
+                "price_data":          price_data,
+                "yield_curve":         yield_curve,
                 # Field aliases various agents use
-                "key_metrics": fund_enriched,      # BUG-08 fix (was technical_indicators)
-                "cash_flow": cf_enriched,          # alias for fundamentals_analyst
-                "company_info": fund_enriched,     # alias for macro_analyst
+                "key_metrics":  fund_enriched,      # BUG-08 fix (was technical_indicators)
+                "cash_flow":    cf_enriched,        # alias for fundamentals_analyst
+                "company_info": fund_enriched,      # alias for macro_analyst
             }
             # Run the synchronous analyze() in a thread pool
             result = await asyncio.to_thread(agent.analyze, state["ticker"], data)
