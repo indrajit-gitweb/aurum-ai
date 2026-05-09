@@ -71,8 +71,9 @@ class BuffettAgent(BaseAgent):
             + (f"largest buy: ${max((t['value'] for t in buys), default=0):,.0f}" if buys else "no open-market buys")
         )
 
+        filing_label = data.get("filing_text_label", "Item 1 + Risk Factors")
         filing_section = (
-            f"\n10-K FILING EXCERPT (Risk Factors / MD&A):\n{filing_text[:2000]}\n"
+            f"\n10-K FILING EXCERPT — {filing_label}:\n{filing_text}\n"
             if filing_text else ""
         )
 

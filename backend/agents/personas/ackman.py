@@ -80,6 +80,8 @@ class AckmanAgent(BaseAgent):
         balance = data.get("balance_sheet", {})
         cash_flow = data.get("cash_flow", {})
         company = data.get("company_info", {})
+        filing_text  = data.get("filing_text_excerpt", "")
+        filing_label = data.get("filing_text_label", "Business description — simplicity & predictability check")
 
         prompt = f"""Bill, build the Pershing Square investment case (or rejection) for {ticker} — {company.get('name', ticker)}.
 
@@ -135,7 +137,7 @@ VALUATION & DOWNSIDE PROTECTION:
 Would you put 10-15% of Pershing Square into this? What's the activist angle?
 What's the downside scenario? Is this simple and predictable enough?
 Present your case as you would in a public presentation.
-"""
+{f"10-K FILING EXCERPT — {filing_label}:{chr(10)}{filing_text}{chr(10)}" if filing_text else ""}"""
 
         messages = [
             {"role": "system", "content": self._build_system_prompt()},

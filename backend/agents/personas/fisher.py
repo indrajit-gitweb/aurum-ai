@@ -68,6 +68,8 @@ class FisherAgent(BaseAgent):
         income = data.get("income_statement", {})
         company = data.get("company_info", {})
         cash_flow = data.get("cash_flow", {})
+        filing_text  = data.get("filing_text_excerpt", "")
+        filing_label = data.get("filing_text_label", "Business description — Scuttlebutt context")
 
         prompt = f"""Phil, run your 15-point Scuttlebutt analysis on {ticker} — {company.get('name', ticker)}.
 
@@ -121,7 +123,7 @@ LONG-TERM ORIENTATION (Point 12):
 
 Score this against your 15-point checklist. How many criteria does it pass?
 Is this a company still in its high-growth phase? Would you hold this for 10 years?
-"""
+{f"10-K FILING EXCERPT — {filing_label}:{chr(10)}{filing_text}{chr(10)}" if filing_text else ""}"""
 
         messages = [
             {"role": "system", "content": self._build_system_prompt()},

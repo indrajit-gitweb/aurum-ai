@@ -404,8 +404,10 @@ async def _node_fundamentals(state: AurumState, on_event: Callable) -> None:
             logger.warning("10-Q filings fetch failed: %s", exc_q)
             state["sec_filings_q"] = []
 
-        # Fetch the first ~3 000 chars of the most recent 10-K (Risk Factors / MD&A)
-        # Only for the four deep-value personas — a targeted extra HTTP call.
+        # Fetch up to 80 000 chars of the most recent 10-K.
+        # This reliably covers Item 1 (Business) + Item 1A (Risk Factors) for
+        # virtually all filers.  Each persona receives a targeted slice of this
+        # text so no LLM is flooded with the full document.
         filing_text_excerpt = ""
         if sec_filings:
             await asyncio.sleep(0.6)   # SEC rate-limit courtesy
@@ -414,7 +416,7 @@ async def _node_fundamentals(state: AurumState, on_event: Callable) -> None:
                     functools.partial(
                         sec.get_filing_text,
                         accession_number=sec_filings[0]["accession_number"],
-                        max_chars=3000,
+                        max_chars=80000,
                     )
                 )
             except Exception as exc_ft:
@@ -799,12 +801,79 @@ async def _node_persona(
                 "bvps":            fund.get("bvps"),
             }
 
-            # Personas that benefit from raw 10-K risk factor / MD&A text
-            FILING_TEXT_PERSONAS = {"buffett", "graham", "burry", "munger"}
-            filing_text = (
-                state.get("filing_text_excerpt", "")
-                if persona_id in FILING_TEXT_PERSONAS else ""
-            )
+            # ── Per-persona 10-K text routing ─────────────────────────────────
+            # Each entry: (chars_to_pass, focus_label_for_prompt)
+            # chars_to_pass is a slice of the 80 000-char fetch so no LLM
+            # receives the full document — only the section relevant to its
+            # investment philosophy.
+            #
+            # Item 1  (Business)      ≈ chars   0 – 40 000
+            # Item 1A (Risk Factors)  ≈ chars 20 000 – 60 000  (varies by filer)
+            # Item 7  (MD&A)          ≈ chars 60 000+  (usually beyond our fetch)
+            _FILING_TEXT_CFG: dict[str, tuple[int, str]] = {
+                # ── Business-description focused ──────────────────────────────
+                "fisher": (
+                    30000,
+                    "Item 1 — Business description. Evaluate against Fisher's "
+                    "15-point Scuttlebutt checklist: products with growth potential, "
+                    "R&D effectiveness, sales-force quality, customer relationships, "
+                    "management integrity, long-term profit orientation.",
+                ),
+                "lynch": (
+                    25000,
+                    "Item 1 — Business description. Use this to classify the stock "
+                    "into Lynch's 6 categories (slow grower / stalwart / fast grower / "
+                    "cyclical / turnaround / asset play) and assess whether the "
+                    "expansion story is replicable.",
+                ),
+                "pabrai": (
+                    20000,
+                    "Item 1 — Business description. Assess simplicity of the business "
+                    "model, sources of competitive moat, and whether it passes the "
+                    "Dhandho 'can a 10-year-old understand it' test.",
+                ),
+                "ackman": (
+                    20000,
+                    "Item 1 — Business description. Assess predictability, barriers "
+                    "to entry, and any activist catalyst potential visible in the "
+                    "business structure and operating model.",
+                ),
+                # ── Business + risk balance ───────────────────────────────────
+                "buffett": (
+                    20000,
+                    "Item 1 + early Risk Factors. Focus on business quality, "
+                    "competitive moat durability, and management's capital allocation "
+                    "language.",
+                ),
+                "munger": (
+                    15000,
+                    "Item 1 + MD&A language. Focus on management tone, capital "
+                    "allocation decisions, and quality of the business model.",
+                ),
+                # ── Risk-factors focused ──────────────────────────────────────
+                "graham": (
+                    25000,
+                    "Item 1A — Risk Factors. Focus on earnings reliability warnings, "
+                    "balance sheet quality issues, contingent liabilities, and any "
+                    "hidden financial risks that threaten margin of safety.",
+                ),
+                "burry": (
+                    30000,
+                    "Item 1A — Risk Factors. Read every line. Surface off-balance-sheet "
+                    "items, contingent liabilities, unusual accounting, customer "
+                    "concentration, supply-chain dependencies, and anything that could "
+                    "destroy the thesis.",
+                ),
+            }
+
+            raw_filing = state.get("filing_text_excerpt", "")
+            _cfg = _FILING_TEXT_CFG.get(persona_id)
+            if _cfg and raw_filing:
+                filing_chars, filing_label = _cfg
+                filing_text  = raw_filing[:filing_chars]
+            else:
+                filing_text  = ""
+                filing_label = ""
 
             # Analyst recs — summarised string for prompt embedding
             analyst_recs = state.get("analyst_recommendations", {})
@@ -836,6 +905,7 @@ async def _node_persona(
                 "macro_summary":         state.get("macro_summary", ""),
                 "sec_facts":             sec_facts,
                 "filing_text_excerpt":   filing_text,
+                "filing_text_label":     filing_label,
                 "price_data":            price_data,
                 "yield_curve":           yield_curve,
                 # New enriched fields — available to ALL personas

@@ -65,8 +65,9 @@ class MungerAgent(BaseAgent):
         company = data.get("company_info", {})
         filing_text = data.get("filing_text_excerpt", "")
 
+        filing_label = data.get("filing_text_label", "Management tone + capital allocation")
         filing_section = (
-            f"\n10-K FILING EXCERPT (management tone, risks, capital allocation language):\n{filing_text[:2000]}\n"
+            f"\n10-K FILING EXCERPT — {filing_label}:\n{filing_text}\n"
             if filing_text else ""
         )
 

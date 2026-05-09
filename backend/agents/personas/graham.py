@@ -70,8 +70,9 @@ class GrahamAgent(BaseAgent):
         company = data.get("company_info", {})
         filing_text = data.get("filing_text_excerpt", "")
 
+        filing_label = data.get("filing_text_label", "Risk Factors — balance sheet quality")
         filing_section = (
-            f"\n10-K FILING EXCERPT (balance sheet quality and earnings consistency):\n{filing_text[:2000]}\n"
+            f"\n10-K FILING EXCERPT — {filing_label}:\n{filing_text}\n"
             if filing_text else ""
         )
 

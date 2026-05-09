@@ -75,6 +75,8 @@ class PabraiAgent(BaseAgent):
         balance = data.get("balance_sheet", {})
         cash_flow = data.get("cash_flow", {})
         company = data.get("company_info", {})
+        filing_text  = data.get("filing_text_excerpt", "")
+        filing_label = data.get("filing_text_label", "Business description — Dhandho simplicity check")
 
         prompt = f"""Mohnish, run your Dhandho checklist on {ticker} — {company.get('name', ticker)}.
 
@@ -122,7 +124,7 @@ CLONING CHECK:
 Apply the Dhandho framework. Is this a 'heads I win, tails I don't lose much' opportunity?
 Does it pass your checklist? What is the uncertainty vs the actual risk here?
 Is this distressed enough? Would Buffett own this?
-"""
+{f"10-K FILING EXCERPT — {filing_label}:{chr(10)}{filing_text}{chr(10)}" if filing_text else ""}"""
 
         messages = [
             {"role": "system", "content": self._build_system_prompt()},

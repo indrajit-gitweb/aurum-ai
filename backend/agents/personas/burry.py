@@ -84,8 +84,9 @@ class BurryAgent(BaseAgent):
             for t in insiders[:6]
         ) or "  None on record"
 
+        filing_label = data.get("filing_text_label", "Risk Factors — hidden risks")
         filing_section = (
-            f"\n10-K FILING EXCERPT (look for hidden risks and off-balance-sheet items):\n{filing_text[:2000]}\n"
+            f"\n10-K FILING EXCERPT — {filing_label}:\n{filing_text}\n"
             if filing_text else ""
         )
 

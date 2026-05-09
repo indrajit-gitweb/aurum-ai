@@ -70,6 +70,8 @@ class LynchAgent(BaseAgent):
         income = data.get("income_statement", {})
         balance = data.get("balance_sheet", {})
         company = data.get("company_info", {})
+        filing_text  = data.get("filing_text_excerpt", "")
+        filing_label = data.get("filing_text_label", "Business description — category classification context")
 
         pe = metrics.get("pe_ratio", "N/A")
         growth = income.get("eps_growth_yoy", metrics.get("eps_growth_5yr", "N/A"))
@@ -135,7 +137,7 @@ INVENTORY & RECEIVABLES:
 First, classify this as one of your 6 categories. Then apply the PEG test and your checklist.
 Is this the kind of stock you'd find in a shopping mall and immediately understand?
 Would you buy it, sell it after 30-50%, or hold forever?
-"""
+{f"10-K FILING EXCERPT — {filing_label}:{chr(10)}{filing_text}{chr(10)}" if filing_text else ""}"""
 
         messages = [
             {"role": "system", "content": self._build_system_prompt()},
