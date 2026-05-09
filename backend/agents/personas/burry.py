@@ -95,9 +95,10 @@ CONTRARIAN SETUP:
   Sector: {company.get('sector', 'N/A')}
   Industry: {company.get('industry', 'N/A')}
   Recent Headlines (sentiment): {company.get('recent_sentiment', 'N/A')}
-  Short Interest: {metrics.get('short_interest', 'N/A')} (high = contrarian opportunity?)
+  Short Interest: {metrics.get('short_interest_pct', metrics.get('short_interest', 'N/A'))} (high = contrarian opportunity?)
   Price vs 52W High: {price_data.get('pct_from_52w_high', 'N/A')}
-  Analyst Consensus: {metrics.get('analyst_consensus', 'N/A')} (if everyone says sell, interesting)
+  Analyst Consensus: {data.get('analyst_recommendations_summary', 'N/A')} (if everyone says sell, interesting)
+  Next Earnings Date: {data.get('next_earnings_date', 'N/A')}
 
 FCF YIELD (your primary screen):
   Free Cash Flow: {cash_flow.get('fcf', 'N/A')}

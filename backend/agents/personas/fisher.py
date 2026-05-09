@@ -79,8 +79,11 @@ COMPANY OVERVIEW:
   Years Public: {company.get('years_public', 'N/A')}
 
 GROWTH POTENTIAL (Points 1-2):
-  Revenue Growth (5yr CAGR): {metrics.get('revenue_cagr_5yr', 'N/A')}
   Revenue Growth YoY: {income.get('revenue_growth_yoy', 'N/A')}
+  Revenue Growth (3yr CAGR): {metrics.get('revenue_cagr_3yr', 'N/A')}
+  Revenue Growth (5yr CAGR): {metrics.get('revenue_cagr_5yr', 'N/A')}
+  Revenue Trend (SEC audited): {metrics.get('revenue_history_5yr', 'N/A')}
+  Net Income Trend (SEC audited): {metrics.get('net_income_history_5yr', 'N/A')}
   TAM Size: {company.get('tam_size', 'N/A')}
   TAM Penetration: {company.get('tam_penetration', 'N/A')}
   Product Pipeline: {company.get('product_pipeline', 'N/A')}

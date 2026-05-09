@@ -103,9 +103,13 @@ GROWTH RATES (your primary signals):
   Revenue Growth QoQ: {income.get('revenue_growth_qoq', 'N/A')}
   Revenue CAGR (3yr): {metrics.get('revenue_cagr_3yr', 'N/A')}
   Revenue CAGR (5yr): {metrics.get('revenue_cagr_5yr', 'N/A')}
-  Revenue Growth Acceleration/Deceleration: {metrics.get('growth_acceleration', 'N/A')}
+  Revenue Trend (SEC audited): {metrics.get('revenue_history_5yr', 'N/A')}
+  Net Income Trend (SEC audited): {metrics.get('net_income_history_5yr', 'N/A')}
+  Forward EPS Growth: {metrics.get('forward_eps_growth', 'N/A')}
   EPS Growth YoY: {income.get('eps_growth_yoy', 'N/A')}
   EPS CAGR (3yr): {metrics.get('eps_cagr_3yr', 'N/A')}
+  EPS CAGR (5yr): {metrics.get('eps_cagr_5yr', 'N/A')}
+  Short Interest: {metrics.get('short_interest_pct', 'N/A')} (high short = potential short-squeeze tailwind)
 
 GROSS MARGIN QUALITY:
   Gross Margin: {income.get('gross_margin', 'N/A')}

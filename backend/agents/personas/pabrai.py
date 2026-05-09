@@ -86,14 +86,15 @@ DHANDHO SETUP ASSESSMENT:
   Description: {company.get('description', 'N/A')}
 
 HEADS I WIN (upside case):
-  Intrinsic Value Estimate: {metrics.get('intrinsic_value', 'N/A')}
   Current Price: {data.get('price_data', {}).get('current_price', 'N/A')}
-  Discount to IV: {metrics.get('discount_to_iv', 'N/A')} (Pabrai wants ≥ 50%)
   FCF: {cash_flow.get('fcf', 'N/A')}
   FCF Yield: {metrics.get('fcf_yield', 'N/A')}
   Earnings Yield: {metrics.get('earnings_yield', 'N/A')}
   P/E: {metrics.get('pe_ratio', 'N/A')}
   P/B: {metrics.get('pb_ratio', 'N/A')}
+  Revenue CAGR (5yr): {metrics.get('revenue_cagr_5yr', 'N/A')}
+  Revenue Trend (SEC audited): {metrics.get('revenue_history_5yr', 'N/A')}
+  Net Income Trend (SEC audited): {metrics.get('net_income_history_5yr', 'N/A')}
 
 TAILS I DON'T LOSE MUCH (downside protection):
   Debt/Equity: {balance.get('debt_equity', 'N/A')}
@@ -109,7 +110,8 @@ MOAT & QUALITY:
   Competitive Moat: {company.get('moat_type', 'N/A')}
 
 MANAGEMENT (MUST be honest and shareholder-friendly):
-  Insider Ownership: {company.get('insider_ownership', 'N/A')}
+  Insider Ownership: {metrics.get('institutional_ownership', company.get('insider_ownership', 'N/A'))}
+  Top Institutional Holders: {metrics.get('top_institutional_holders', 'N/A')}
   CEO Track Record: {company.get('management_track_record', 'N/A')}
   Capital Allocation: {company.get('capital_allocation', 'N/A')}
 

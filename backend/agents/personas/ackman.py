@@ -96,6 +96,10 @@ FCF DOMINANCE (your primary metric):
   FCF Yield: {metrics.get('fcf_yield', 'N/A')} (target: > 6-8%)
   FCF Growth YoY: {cash_flow.get('fcf_growth_yoy', 'N/A')}
   FCF Conversion (FCF/Net Income): {metrics.get('fcf_conversion', 'N/A')}
+  Revenue Trend (SEC audited): {metrics.get('revenue_history_5yr', 'N/A')}
+  Net Income Trend (SEC audited): {metrics.get('net_income_history_5yr', 'N/A')}
+  Revenue CAGR (5yr): {metrics.get('revenue_cagr_5yr', 'N/A')}
+  Net Debt/EBITDA: {metrics.get('net_debt_ebitda', 'N/A')}
 
 BARRIERS TO ENTRY:
   Gross Margin: {income.get('gross_margin', 'N/A')} (high = pricing power)

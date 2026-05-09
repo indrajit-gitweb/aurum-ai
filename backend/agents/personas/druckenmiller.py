@@ -77,12 +77,13 @@ class DruckenmillerAgent(BaseAgent):
     def analyze(self, ticker: str, data: dict) -> AgentSignal:
         metrics = data.get("key_metrics", {})
         income = data.get("income_statement", {})
-        # BUG-02 fix: backend sends macro_summary (string), not macro_data (dict)
         macro_summary = data.get("macro_summary", "")
         yield_curve = data.get("yield_curve", {})
         company = data.get("company_info", {})
         technical = data.get("technical_indicators", {})
         cash_flow = data.get("cash_flow", {})
+        analyst_recs = data.get("analyst_recommendations_summary", "N/A")
+        next_earnings = data.get("next_earnings_date", "N/A")
 
         prompt = f"""Stan, run your macro-to-micro analysis on {ticker} — {company.get('name', ticker)}.
 
@@ -102,11 +103,13 @@ SECTOR POSITIONING (Step 2):
   Sector Rotation Signal: {company.get('sector_rotation_signal', 'N/A')}
 
 EARNINGS REVISIONS (Step 3 — your most important stock signal):
-  EPS Estimates Trend (last 90d): {metrics.get('eps_revision_trend', 'N/A')}
-  Analyst Upgrades vs Downgrades: {metrics.get('upgrades_vs_downgrades', 'N/A')}
-  Earnings Surprise History (last 4Q): {metrics.get('earnings_surprise_history', 'N/A')}
-  Revenue Surprise Trend: {metrics.get('revenue_surprise_trend', 'N/A')}
+  Analyst Consensus: {analyst_recs}
   Forward EPS Growth: {metrics.get('forward_eps_growth', 'N/A')}
+  EPS CAGR (5yr): {metrics.get('eps_cagr_5yr', 'N/A')}
+  Revenue CAGR (5yr): {metrics.get('revenue_cagr_5yr', 'N/A')}
+  Revenue Trend (SEC audited): {metrics.get('revenue_history_5yr', 'N/A')}
+  Next Earnings Date: {next_earnings}
+  Short Interest: {metrics.get('short_interest_pct', 'N/A')}
 
 STOCK-SPECIFIC CONFIRMATION (Step 4):
   Revenue Growth YoY: {income.get('revenue_growth_yoy', 'N/A')}

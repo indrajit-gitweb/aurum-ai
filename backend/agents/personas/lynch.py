@@ -87,15 +87,23 @@ BUSINESS OVERVIEW:
   Industry: {company.get('industry', 'N/A')}
   Description: {company.get('description', 'N/A')}
   Market Cap: {company.get('market_cap', 'N/A')}
-  Institutional Ownership: {company.get('institutional_ownership', 'N/A')} (lower = undiscovered)
+  Institutional Ownership: {metrics.get('institutional_ownership', company.get('institutional_ownership', 'N/A'))} (lower = undiscovered)
+  Top Institutional Holders: {metrics.get('top_institutional_holders', 'N/A')}
+  Short Interest: {metrics.get('short_interest_pct', 'N/A')}
 
 GARP METRICS:
   P/E Ratio: {pe}
   EPS Growth Rate (YoY): {income.get('eps_growth_yoy', 'N/A')}
-  EPS Growth Rate (5yr avg): {metrics.get('eps_cagr_5yr', 'N/A')}
+  EPS Growth Rate (5yr CAGR): {metrics.get('eps_cagr_5yr', 'N/A')}
   PEG Ratio: {peg} (< 1 is your sweet spot)
   Revenue Growth YoY: {income.get('revenue_growth_yoy', 'N/A')}
+  Revenue Growth (3yr CAGR): {metrics.get('revenue_cagr_3yr', 'N/A')}
   Revenue Growth (5yr CAGR): {metrics.get('revenue_cagr_5yr', 'N/A')}
+  Forward EPS Growth: {metrics.get('forward_eps_growth', 'N/A')}
+
+MULTI-YEAR REVENUE TREND (SEC audited):
+  {metrics.get('revenue_history_5yr', 'N/A')}
+  Net Income Trend: {metrics.get('net_income_history_5yr', 'N/A')}
 
 BUSINESS QUALITY:
   Gross Margin: {income.get('gross_margin', 'N/A')}

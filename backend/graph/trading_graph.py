@@ -75,6 +75,9 @@ class AurumState(TypedDict, total=False):
     cashflow: dict
     news: list[dict]
     insider_transactions: list[dict]
+    earnings_calendar: dict
+    analyst_recommendations: dict
+    institutional_ownership: dict
     technical_indicators: dict
     sec_facts: dict
     sec_filings: list[dict]
@@ -344,17 +347,19 @@ async def _node_fundamentals(state: AurumState, on_event: Callable) -> None:
     )
     yf = YFinanceClient(state["ticker"])
 
-    # Run all four yfinance fundamental calls concurrently in thread pool
-    fundamentals, balance_sheet, income_statement, cashflow = await asyncio.gather(
+    # Run all five yfinance fundamental calls concurrently in thread pool
+    fundamentals, balance_sheet, income_statement, cashflow, inst_ownership = await asyncio.gather(
         asyncio.to_thread(yf.get_fundamentals),
         asyncio.to_thread(yf.get_balance_sheet),
         asyncio.to_thread(yf.get_income_statement),
         asyncio.to_thread(yf.get_cashflow),
+        asyncio.to_thread(yf.get_institutional_ownership),
     )
     state["fundamentals"] = fundamentals
     state["balance_sheet"] = balance_sheet
     state["income_statement"] = income_statement
     state["cashflow"] = cashflow
+    state["institutional_ownership"] = inst_ownership
 
     # SEC EDGAR facts — also in thread pool
     try:
@@ -438,13 +443,17 @@ async def _node_news(state: AurumState, on_event: Callable) -> None:
         }
     )
     yf_client = YFinanceClient(state["ticker"])
-    # Fetch news (20 articles) and insider transactions concurrently
-    news, insider_txns = await asyncio.gather(
+    # Fetch news, insider transactions, earnings calendar, analyst recs — all concurrently
+    news, insider_txns, cal, analyst_recs = await asyncio.gather(
         asyncio.to_thread(functools.partial(yf_client.get_news, limit=20)),
         asyncio.to_thread(yf_client.get_insider_transactions),
+        asyncio.to_thread(yf_client.get_earnings_calendar),
+        asyncio.to_thread(yf_client.get_analyst_recommendations),
     )
     state["news"] = news
     state["insider_transactions"] = insider_txns
+    state["earnings_calendar"] = cal
+    state["analyst_recommendations"] = analyst_recs
 
     await on_event(
         {
@@ -453,8 +462,10 @@ async def _node_news(state: AurumState, on_event: Callable) -> None:
             "signal": "neutral",
             "confidence": 100,
             "reasoning": (
-                f"Retrieved {len(state.get('news', []))} news articles and "
-                f"{len(state.get('insider_transactions', []))} insider transactions."
+                f"Retrieved {len(state.get('news', []))} articles, "
+                f"{len(state.get('insider_transactions', []))} insider txns, "
+                f"analyst consensus: {analyst_recs.get('consensus', 'N/A')} "
+                f"({analyst_recs.get('total_analysts', 0)} analysts)."
             ),
         }
     )
@@ -567,43 +578,134 @@ async def _node_persona(
                 wacc             = None
                 roic_wacc_spread = None
 
-            # ── Enrich fund_enriched with multi-year trends from SEC EDGAR XBRL ──
-            # sec_facts has audited annual data going back 8 years — use it to
-            # populate the CAGR fields that Buffett/Munger/Graham prompts reference.
+            # ── Enrich fund with multi-year trends from SEC EDGAR XBRL ──────────
             sec_facts = state.get("sec_facts", {})
             try:
                 rev_series = [r for r in sec_facts.get("revenue", []) if r.get("val")]
                 ni_series  = [r for r in sec_facts.get("net_income", []) if r.get("val")]
+                eps_series = [r for r in sec_facts.get("eps", []) if r.get("val")]
 
-                if len(rev_series) >= 4:
-                    rev_vals = [r["val"] for r in rev_series]
-                    # 3-year CAGR (index 0 = latest, index 3 = 3 years ago)
-                    cagr_3yr = (rev_vals[0] / rev_vals[3]) ** (1 / 3) - 1
-                    fund.setdefault("revenue_cagr_3yr", f"{cagr_3yr:+.1%}")
-                if len(rev_series) >= 6:
-                    cagr_5yr = (rev_vals[0] / rev_vals[5]) ** (1 / 5) - 1
-                    fund.setdefault("revenue_cagr_5yr", f"{cagr_5yr:+.1%}")
-
-                # Human-readable revenue history string: "2024: $383B | 2023: $394B | ..."
+                rev_vals: list = []
                 if rev_series:
+                    rev_vals = [r["val"] for r in rev_series]
+                    if len(rev_vals) >= 4:
+                        cagr_3yr = (rev_vals[0] / rev_vals[3]) ** (1 / 3) - 1
+                        fund.setdefault("revenue_cagr_3yr", f"{cagr_3yr:+.1%}")
+                    if len(rev_vals) >= 6:
+                        cagr_5yr = (rev_vals[0] / rev_vals[5]) ** (1 / 5) - 1
+                        fund.setdefault("revenue_cagr_5yr", f"{cagr_5yr:+.1%}")
                     rev_hist = " | ".join(
-                        f"{r['end'][:4]}: ${r['val']/1e9:.1f}B"
-                        for r in rev_series[:5]
+                        f"{r['end'][:4]}: ${r['val']/1e9:.1f}B" for r in rev_series[:5]
                     )
                     fund.setdefault("revenue_history_5yr", rev_hist)
 
-                if len(ni_series) >= 2:
+                if ni_series:
                     ni_vals = [r["val"] for r in ni_series]
                     ni_hist = " | ".join(
-                        f"{r['end'][:4]}: ${r['val']/1e9:.1f}B"
-                        for r in ni_series[:5]
+                        f"{r['end'][:4]}: ${r['val']/1e9:.1f}B" for r in ni_series[:5]
                     )
                     fund.setdefault("net_income_history_5yr", ni_hist)
-                    if ni_vals[1] and ni_vals[1] != 0:
-                        ni_growth = ni_vals[0] / ni_vals[1] - 1
-                        fund.setdefault("net_income_growth_yoy", f"{ni_growth:+.1%}")
+                    if len(ni_vals) >= 2 and ni_vals[1] != 0:
+                        fund.setdefault("net_income_growth_yoy", f"{ni_vals[0]/ni_vals[1]-1:+.1%}")
+
+                # EPS 5yr CAGR from SEC EDGAR
+                if len(eps_series) >= 6:
+                    e_vals = [r["val"] for r in eps_series]
+                    if e_vals[5] and e_vals[5] != 0 and e_vals[0] / e_vals[5] > 0:
+                        fund.setdefault("eps_cagr_5yr", f"{(e_vals[0]/e_vals[5])**(1/5)-1:+.1%}")
+                if len(eps_series) >= 4:
+                    e_vals = [r["val"] for r in eps_series]
+                    if e_vals[3] and e_vals[3] != 0 and e_vals[0] / e_vals[3] > 0:
+                        fund.setdefault("eps_cagr_3yr", f"{(e_vals[0]/e_vals[3])**(1/3)-1:+.1%}")
+
             except Exception as exc_sec:
                 logger.debug("SEC CAGR enrichment skipped: %s", exc_sec)
+
+            # ── Compute derived ratios that many personas reference ────────────
+            try:
+                # PEG = trailing P/E ÷ EPS growth rate (as %)
+                pe_v   = fund.get("pe_ratio")
+                # Use SEC EPS CAGR first, fall back to revenue growth as proxy
+                g_str  = fund.get("eps_cagr_5yr") or fund.get("revenue_cagr_5yr") or \
+                         inc.get("revenue_growth_yoy")
+                if pe_v and g_str and g_str != "N/A":
+                    g_pct = float(str(g_str).replace("%", "").replace("+", ""))
+                    if g_pct > 0:
+                        fund.setdefault("peg_ratio", round(float(pe_v) / g_pct, 2))
+            except Exception:
+                pass
+
+            try:
+                # Net Debt / EBITDA
+                td     = fund.get("total_debt") or 0
+                cash_v = fund.get("total_cash") or \
+                         state.get("balance_sheet", {}).get("cash") or 0
+                ebitda_v = fund.get("ebitda")
+                if ebitda_v and ebitda_v != 0:
+                    fund.setdefault("net_debt_ebitda", round((td - cash_v) / abs(ebitda_v), 2))
+            except Exception:
+                pass
+
+            try:
+                # CapEx / Revenue
+                capex_v = abs(cf.get("capex") or cf.get("capital_expenditure") or 0)
+                rev_v   = inc.get("revenue") or inc.get("total_revenue")
+                if capex_v and rev_v and rev_v != 0:
+                    fund.setdefault("capex_to_revenue", f"{capex_v/rev_v:.1%}")
+            except Exception:
+                pass
+
+            try:
+                # Cash burn: negative operating_cf − capex (for pre-profit companies)
+                op_cf = cf.get("operating_cash_flow") or cf.get("operating_cf") or 0
+                capex_b = abs(cf.get("capex") or 0)
+                net_cf = op_cf - capex_b
+                fund.setdefault("cash_burn", round(net_cf, 0))   # negative = burning
+            except Exception:
+                pass
+
+            try:
+                # Forward EPS growth: (forward_eps - trailing_eps) / abs(trailing_eps)
+                fwd_eps = fund.get("forward_eps")
+                trail_eps = fund.get("eps")
+                if fwd_eps and trail_eps and trail_eps != 0:
+                    fwd_growth = (fwd_eps - trail_eps) / abs(trail_eps)
+                    fund.setdefault("forward_eps_growth", f"{fwd_growth:+.1%}")
+            except Exception:
+                pass
+
+            try:
+                # Revenue per employee
+                employees = fund.get("employees")
+                rev_e = inc.get("revenue") or inc.get("total_revenue")
+                if employees and rev_e and employees > 0:
+                    fund.setdefault("revenue_per_employee", round(rev_e / employees, 0))
+            except Exception:
+                pass
+
+            try:
+                # Earnings yield = 1 / PE
+                pe_ey = fund.get("pe_ratio")
+                if pe_ey and pe_ey != 0:
+                    fund.setdefault("earnings_yield", f"{1/float(pe_ey):.1%}")
+            except Exception:
+                pass
+
+            try:
+                # Short interest as readable %
+                si = fund.get("short_interest")
+                if si is not None:
+                    fund.setdefault("short_interest_pct", f"{float(si)*100:.1f}%")
+            except Exception:
+                pass
+
+            # ── Wire institutional ownership into fund for Lynch/Pabrai ────────
+            inst = state.get("institutional_ownership", {})
+            if inst:
+                fund.setdefault("institutional_ownership",
+                    inst.get("pct_institutionally_held", "N/A"))
+                fund.setdefault("top_institutional_holders",
+                    ", ".join(h["name"] for h in inst.get("top_holders", [])[:3]))
 
             fund_enriched = {
                 **fund,
@@ -622,20 +724,43 @@ async def _node_persona(
                 if persona_id in FILING_TEXT_PERSONAS else ""
             )
 
+            # Analyst recs — summarised string for prompt embedding
+            analyst_recs = state.get("analyst_recommendations", {})
+            analyst_recs_str = (
+                f"{analyst_recs.get('consensus', 'N/A')} "
+                f"({analyst_recs.get('strong_buy', 0)} strong buy / "
+                f"{analyst_recs.get('buy', 0)} buy / "
+                f"{analyst_recs.get('hold', 0)} hold / "
+                f"{analyst_recs.get('sell', 0)} sell / "
+                f"{analyst_recs.get('strong_sell', 0)} strong sell, "
+                f"{analyst_recs.get('total_analysts', 0)} analysts)"
+                if analyst_recs else "N/A"
+            )
+            # Earnings calendar — next earnings date string
+            cal = state.get("earnings_calendar", {})
+            next_earnings = (
+                cal.get("earnings_date") or cal.get("earnings_dates") or "N/A"
+            )
+
             data = {
-                "fundamentals":        fund_enriched,
-                "balance_sheet":       state.get("balance_sheet", {}),
-                "income_statement":    inc_enriched,
-                "cashflow":            cf_enriched,
-                "technical_indicators": tech,
-                "news":                state.get("news", []),
-                "news_articles":       state.get("news", []),       # alias
-                "insider_transactions": state.get("insider_transactions", []),
-                "macro_summary":       state.get("macro_summary", ""),
-                "sec_facts":           sec_facts,
-                "filing_text_excerpt": filing_text,
-                "price_data":          price_data,
-                "yield_curve":         yield_curve,
+                "fundamentals":          fund_enriched,
+                "balance_sheet":         state.get("balance_sheet", {}),
+                "income_statement":      inc_enriched,
+                "cashflow":              cf_enriched,
+                "technical_indicators":  tech,
+                "news":                  state.get("news", []),
+                "news_articles":         state.get("news", []),       # alias
+                "insider_transactions":  state.get("insider_transactions", []),
+                "macro_summary":         state.get("macro_summary", ""),
+                "sec_facts":             sec_facts,
+                "filing_text_excerpt":   filing_text,
+                "price_data":            price_data,
+                "yield_curve":           yield_curve,
+                # New enriched fields — available to ALL personas
+                "analyst_recommendations_summary": analyst_recs_str,
+                "analyst_recommendations":         analyst_recs,
+                "next_earnings_date":              next_earnings,
+                "earnings_calendar":               cal,
                 # Field aliases various agents use
                 "key_metrics":  fund_enriched,      # BUG-08 fix (was technical_indicators)
                 "cash_flow":    cf_enriched,        # alias for fundamentals_analyst

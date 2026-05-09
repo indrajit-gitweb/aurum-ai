@@ -90,11 +90,15 @@ COMPANY CONTEXT:
 DCF INPUTS:
   Revenue (TTM): {income.get('revenue', 'N/A')}
   Revenue Growth YoY: {income.get('revenue_growth_yoy', 'N/A')}
+  Revenue CAGR (3yr): {metrics.get('revenue_cagr_3yr', 'N/A')}
   Revenue CAGR (5yr): {metrics.get('revenue_cagr_5yr', 'N/A')}
+  Revenue Trend (SEC audited): {metrics.get('revenue_history_5yr', 'N/A')}
+  Net Income Trend (SEC audited): {metrics.get('net_income_history_5yr', 'N/A')}
+  Forward EPS Growth: {metrics.get('forward_eps_growth', 'N/A')}
+  EPS CAGR (5yr): {metrics.get('eps_cagr_5yr', 'N/A')}
   Operating Margin (current): {income.get('operating_margin', 'N/A')}
   Target Operating Margin (5yr): {metrics.get('target_operating_margin', 'N/A')}
-  Sector Median Operating Margin: {company.get('sector_median_margin', 'N/A')}
-  Tax Rate: {income.get('effective_tax_rate', 'N/A')}
+  CapEx / Revenue: {metrics.get('capex_to_revenue', 'N/A')}
   CapEx: {cash_flow.get('capex', 'N/A')}
   D&A: {cash_flow.get('depreciation_amortization', 'N/A')}
   Working Capital Change: {cash_flow.get('working_capital_change', 'N/A')}

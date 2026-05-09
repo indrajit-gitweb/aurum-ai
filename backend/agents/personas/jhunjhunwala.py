@@ -107,9 +107,13 @@ MANAGEMENT (your #1 filter):
 
 GARP METRICS:
   Revenue Growth YoY: {income.get('revenue_growth_yoy', 'N/A')}
+  Revenue CAGR (3yr): {metrics.get('revenue_cagr_3yr', 'N/A')}
   Revenue CAGR (5yr): {metrics.get('revenue_cagr_5yr', 'N/A')}
+  Revenue Trend (SEC audited): {metrics.get('revenue_history_5yr', 'N/A')}
+  Net Income Trend (SEC audited): {metrics.get('net_income_history_5yr', 'N/A')}
   EPS Growth YoY: {income.get('eps_growth_yoy', 'N/A')}
   EPS CAGR (5yr): {metrics.get('eps_cagr_5yr', 'N/A')}
+  Forward EPS Growth: {metrics.get('forward_eps_growth', 'N/A')}
   P/E Ratio: {metrics.get('pe_ratio', 'N/A')}
   PEG Ratio: {metrics.get('peg_ratio', 'N/A')}
   EV/EBITDA: {metrics.get('ev_ebitda', 'N/A')}

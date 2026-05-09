@@ -156,8 +156,12 @@ class YFinanceClient:
                 "free_cashflow": fcf_v,
                 "fcf": fcf_v,                                       # alias
                 "eps": info.get("trailingEps"),
+                "forward_eps": info.get("forwardEps"),
                 "dividend_yield": info.get("dividendYield"),
+                "dividend_rate": info.get("dividendRate"),
                 "beta": info.get("beta"),
+                "short_interest": info.get("shortPercentOfFloat"),   # e.g. 0.023 = 2.3%
+                "short_ratio":    info.get("shortRatio"),
                 "52w_high": info.get("fiftyTwoWeekHigh"),
                 "52w_low": info.get("fiftyTwoWeekLow"),
                 "avg_volume": info.get("averageVolume"),
@@ -411,6 +415,121 @@ class YFinanceClient:
         except Exception as exc:
             logger.warning("[%s] get_insider_transactions failed: %s", self.ticker, exc)
             return []
+
+    def get_earnings_calendar(self) -> dict:
+        """Return the next earnings date and any forward estimates from yfinance.
+
+        Returns:
+            Dict with keys: next_earnings_date, earnings_avg, earnings_low,
+            earnings_high, revenue_avg.  Empty dict on failure.
+        """
+        try:
+            cal = self._yf.calendar
+            if cal is None:
+                return {}
+            result: dict = {}
+            if isinstance(cal, dict):
+                for raw_key, val in cal.items():
+                    key = _to_snake(str(raw_key))
+                    # Lists (e.g. date ranges) → take the first element
+                    if hasattr(val, "__iter__") and not isinstance(val, str):
+                        items = list(val)
+                        val = items[0] if items else None
+                    if val is not None:
+                        result[key] = str(val)[:10] if hasattr(val, "strftime") else val
+            elif hasattr(cal, "to_dict"):
+                # Some yfinance versions return a DataFrame
+                for col in cal.columns:
+                    v = cal[col].iloc[0]
+                    if v is not None:
+                        result[_to_snake(str(col))] = str(v)[:10] if hasattr(v, "strftime") else v
+            return result
+        except Exception as exc:
+            logger.warning("[%s] get_earnings_calendar failed: %s", self.ticker, exc)
+            return {}
+
+    def get_analyst_recommendations(self) -> dict:
+        """Return a summary of analyst buy/hold/sell ratings.
+
+        Uses yfinance's ``recommendations_summary`` (most recent period only).
+
+        Returns:
+            Dict with keys: strong_buy, buy, hold, sell, strong_sell, total,
+            consensus (string label), consensus_score (0-4).
+            Empty dict on failure.
+        """
+        try:
+            recs = self._yf.recommendations_summary
+            if recs is None or (hasattr(recs, "empty") and recs.empty):
+                return {}
+            row = recs.iloc[0]  # most recent period
+            sb  = int(row.get("strongBuy",   0) or 0)
+            b   = int(row.get("buy",         0) or 0)
+            h   = int(row.get("hold",        0) or 0)
+            s   = int(row.get("sell",        0) or 0)
+            ss  = int(row.get("strongSell",  0) or 0)
+            total = sb + b + h + s + ss
+            # Consensus score 0-4 (higher = more bullish)
+            score = (sb * 4 + b * 3 + h * 2 + s * 1 + ss * 0) / total if total else 2.0
+            if score >= 3.5:   label = "Strong Buy"
+            elif score >= 2.8: label = "Buy"
+            elif score >= 2.2: label = "Hold"
+            elif score >= 1.5: label = "Sell"
+            else:              label = "Strong Sell"
+            return {
+                "strong_buy":      sb,
+                "buy":             b,
+                "hold":            h,
+                "sell":            s,
+                "strong_sell":     ss,
+                "total_analysts":  total,
+                "consensus":       label,
+                "consensus_score": round(score, 2),
+            }
+        except Exception as exc:
+            logger.warning("[%s] get_analyst_recommendations failed: %s", self.ticker, exc)
+            return {}
+
+    def get_institutional_ownership(self) -> dict:
+        """Return institutional ownership percentage and top-5 holders.
+
+        Returns:
+            Dict with keys: pct_institutionally_held, top_holders (list of
+            {name, pct_held}).  Empty dict on failure.
+        """
+        try:
+            holders = self._yf.institutional_holders
+            if holders is None or (hasattr(holders, "empty") and holders.empty):
+                return {}
+
+            # Try to derive overall % held from top-holders table
+            pct_col = next(
+                (c for c in holders.columns if "%" in c or "out" in c.lower() or "pct" in c.lower()),
+                None,
+            )
+            pct_total: Optional[float] = None
+            try:
+                if pct_col:
+                    pct_total = holders[pct_col].sum() * 100
+            except Exception:
+                pass
+
+            top: list[dict] = []
+            for _, row in holders.head(5).iterrows():
+                name = str(row.get("Holder", row.get("holder", "")))
+                pct  = row.get(pct_col) if pct_col else None
+                top.append({
+                    "name":     name,
+                    "pct_held": f"{float(pct) * 100:.1f}%" if pct is not None else "N/A",
+                })
+
+            return {
+                "pct_institutionally_held": f"{pct_total:.1f}%" if pct_total else "N/A",
+                "top_holders": top,
+            }
+        except Exception as exc:
+            logger.warning("[%s] get_institutional_ownership failed: %s", self.ticker, exc)
+            return {}
 
     # ─────────────────────────────────────────────────────────────────────────
     # Technical indicators

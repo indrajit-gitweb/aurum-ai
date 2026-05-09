@@ -71,6 +71,8 @@ class NewsSentimentAgent(BaseAgent):
         news = data.get("news", data.get("news_articles", []))  # BUG-01 fix
         insiders = data.get("insider_transactions", [])
         company = data.get("company_info", {})
+        analyst_recs = data.get("analyst_recommendations_summary", "N/A")
+        next_earnings = data.get("next_earnings_date", company.get("next_earnings_date", "N/A"))
 
         # Score news sentiment
         bullish_count = 0
@@ -151,8 +153,11 @@ INSIDER TRANSACTIONS (last 90 days):
   Net Insider Signal: {"BUYING" if insider_buy_value > insider_sell_value else "SELLING" if insider_sell_value > insider_buy_value else "NEUTRAL"}
 {insider_text}
 
+ANALYST CONSENSUS:
+  {analyst_recs}
+
 UPCOMING CATALYSTS:
-  Next Earnings Date: {company.get('next_earnings_date', 'N/A')}
+  Next Earnings Date: {next_earnings}
   Other Catalysts: {company.get('upcoming_catalysts', 'N/A')}
 
 Provide your aggregate sentiment verdict:
