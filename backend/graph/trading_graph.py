@@ -1459,13 +1459,40 @@ class TradingGraph:
         # ── 3. Rate-throttled persona analysis ───────────────────────────────
         # Semaphore(1) forces personas to run fully sequentially — one at a time.
         # This prevents burst exhaustion of all free-tier providers simultaneously.
-        # With 2+, the last few personas in a large selection still hit rate limits
-        # because earlier pairs have already drained per-minute quotas across all providers.
+        # Each persona also gets its own 90-second graceful timeout: if a single
+        # persona hangs (slow provider, rate-limit retry storm), it emits a neutral
+        # fallback signal and the pipeline continues — no total analysis failure.
         _persona_sem = asyncio.Semaphore(1)
 
         async def _throttled_persona(pid: str) -> PersonaSignalDict:
             async with _persona_sem:
-                result = await _node_persona(pid, state, llm_router, on_event)
+                persona_name = PERSONA_INFO.get(pid, {}).get("name", pid.replace("_", " ").title())
+                try:
+                    result = await asyncio.wait_for(
+                        _node_persona(pid, state, llm_router, on_event),
+                        timeout=90.0,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("Persona %s timed out after 90s — using neutral fallback", pid)
+                    await on_event({
+                        "type": "agent_result",
+                        "agent": pid,
+                        "agent_name": persona_name,
+                        "signal": "neutral",
+                        "confidence": 50,
+                        "reasoning": (
+                            f"{persona_name} analysis timed out (provider took >90s). "
+                            "No signal available for this persona."
+                        ),
+                    })
+                    result = PersonaSignalDict(
+                        agent=pid,
+                        signal="neutral",
+                        confidence=50,
+                        reasoning=(
+                            f"{persona_name} analysis timed out — no signal available."
+                        ),
+                    )
                 await asyncio.sleep(0.5)   # brief gap so provider quotas can breathe
                 return result
 

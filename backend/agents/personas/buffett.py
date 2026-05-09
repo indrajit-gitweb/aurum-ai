@@ -134,5 +134,5 @@ Respond in your authentic voice as the JSON object specified.
             {"role": "user", "content": prompt},
         ]
 
-        response = self.llm.invoke(messages, task_type="deep")
+        response = self.llm.invoke(messages, task_type="quick")
         return self._parse_response(response, ticker)

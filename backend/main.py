@@ -308,8 +308,9 @@ async def analyze_websocket(websocket: WebSocket, session_id: str) -> None:
                 pass  # client may have disconnected
 
         graph = TradingGraph()
-        # 4-minute hard timeout — prevents the WebSocket from hanging
-        # indefinitely if an LLM provider or data source stops responding.
+        # 10-minute hard timeout — generous backstop for large persona selections
+        # (e.g. 8–12 personas).  Individual personas have their own 90-second
+        # graceful timeout inside the graph, so the global wall is rarely hit.
         result = await asyncio.wait_for(
             graph.run(
                 ticker=request.ticker,
@@ -319,7 +320,7 @@ async def analyze_websocket(websocket: WebSocket, session_id: str) -> None:
                 on_event=on_event,
                 analysis_mode=request.analysis_mode,
             ),
-            timeout=240.0,
+            timeout=600.0,
         )
 
         # Emit the final result — use result.dict() which handles all serialisation
@@ -330,13 +331,13 @@ async def analyze_websocket(websocket: WebSocket, session_id: str) -> None:
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected: session=%s", session_id)
     except asyncio.TimeoutError:
-        logger.error("Analysis timed out after 240s: session=%s", session_id)
+        logger.error("Analysis timed out after 600s: session=%s", session_id)
         try:
             await websocket.send_json(
                 {
                     "type": "error",
                     "message": (
-                        "Analysis timed out (4 minutes). "
+                        "Analysis timed out (10 minutes). "
                         "Try selecting fewer personas or providing your own API key "
                         "for faster inference."
                     ),

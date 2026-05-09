@@ -144,5 +144,5 @@ Conclude with whether this is over/under/fairly valued.
             {"role": "user", "content": prompt},
         ]
 
-        response = self.llm.invoke(messages, task_type="deep")
+        response = self.llm.invoke(messages, task_type="quick")
         return self._parse_response(response, ticker)
