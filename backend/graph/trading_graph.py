@@ -624,14 +624,19 @@ async def _node_persona(
             # ── Compute derived ratios that many personas reference ────────────
             try:
                 # PEG = trailing P/E ÷ EPS growth rate (as %)
-                pe_v   = fund.get("pe_ratio")
-                # Use SEC EPS CAGR first, fall back to revenue growth as proxy
-                g_str  = fund.get("eps_cagr_5yr") or fund.get("revenue_cagr_5yr") or \
-                         inc.get("revenue_growth_yoy")
-                if pe_v and g_str and g_str != "N/A":
+                pe_v  = fund.get("pe_ratio")
+                g_pct = None
+                # Prefer SEC-computed CAGRs — formatted as percentage strings "+12.3%"
+                g_str = fund.get("eps_cagr_5yr") or fund.get("revenue_cagr_5yr")
+                if g_str and g_str != "N/A":
                     g_pct = float(str(g_str).replace("%", "").replace("+", ""))
-                    if g_pct > 0:
-                        fund.setdefault("peg_ratio", round(float(pe_v) / g_pct, 2))
+                else:
+                    # yfinance returns revenue_growth_yoy as raw decimal (0.123 = 12.3%)
+                    raw = inc.get("revenue_growth_yoy")
+                    if raw is not None:
+                        g_pct = float(raw) * 100   # convert to percentage points
+                if pe_v and g_pct and g_pct > 0:
+                    fund.setdefault("peg_ratio", round(float(pe_v) / g_pct, 2))
             except Exception:
                 pass
 

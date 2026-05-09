@@ -114,7 +114,7 @@ VALUATION (5-YEAR DCF):
 
 CASH POSITION & RUNWAY:
   Cash: {data.get('balance_sheet', {}).get('cash', 'N/A')}
-  Cash Burn Rate: {cash_flow.get('cash_burn', 'N/A')}
+  Cash Burn Rate: {metrics.get('cash_burn', cash_flow.get('cash_burn', 'N/A'))}
   Months of Runway: {company.get('runway_months', 'N/A')}
 
 Does this company sit at the intersection of multiple innovation platforms?
