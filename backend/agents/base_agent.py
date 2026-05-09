@@ -59,7 +59,36 @@ class BaseAgent:
                     key_points=key_points,
                 )
             except (json.JSONDecodeError, ValueError, KeyError):
-                pass
+                # JSON parse failed (malformed output from smaller/faster models).
+                # Fall back to regex-based field extraction before giving up.
+                sig_m   = re.search(r'"signal"\s*:\s*"([^"]+)"', raw)
+                conf_m  = re.search(r'"confidence"\s*:\s*(\d+)', raw)
+                # Match reasoning value robustly — handles escaped quotes and \n inside
+                reas_m  = re.search(r'"reasoning"\s*:\s*"((?:[^"\\]|\\.)*)"', raw, re.DOTALL)
+                if reas_m:
+                    signal = sig_m.group(1).lower() if sig_m else "neutral"
+                    if signal not in ("bullish", "bearish", "neutral"):
+                        signal = "neutral"
+                    confidence = int(conf_m.group(1)) if conf_m else 50
+                    confidence = max(0, min(100, confidence))
+                    reasoning_text = (
+                        reas_m.group(1)
+                        .replace("\\n", "\n")
+                        .replace("\\t", "\t")
+                        .replace('\\"', '"')
+                        .replace("\\\\", "\\")
+                    )
+                    # Extract key_points array items if present
+                    kp_raw = re.findall(r'"([^"]{15,})"', raw.split('"key_points"', 1)[-1]) \
+                             if '"key_points"' in raw else []
+                    return AgentSignal(
+                        agent_id=self.agent_id,
+                        agent_name=self.agent_name,
+                        signal=signal,
+                        confidence=confidence,
+                        reasoning=reasoning_text,
+                        key_points=kp_raw[:5] if kp_raw else ["See full analysis."],
+                    )
 
         # Fallback: derive signal from text
         lower = response.lower()

@@ -360,35 +360,64 @@ function PipelineStepsBar({ steps }: { steps: PipelineStep[] }) {
 }
 
 // ─── JSON fence stripper — extracts plain reasoning from raw LLM output ─────────
-// Some quick-model responses wrap output in ```json { ... } ``` fences.
-// This strips the fence and extracts the "reasoning" field if present.
+// Defence-in-depth: handles cases where the backend stored raw JSON in reasoning
+// (fallback path in base_agent._parse_response when json.loads fails).
+// Also normalises literal \n escape sequences that some small/fast models emit.
 function cleanReasoning(raw: string): string {
   if (!raw) return ''
-  const stripped = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/,'').trim()
-  try {
-    const parsed = JSON.parse(stripped)
-    if (typeof parsed.reasoning === 'string' && parsed.reasoning.length > 0) return parsed.reasoning
-    // Sometimes the whole object is the content — try signal+reasoning shape
-    if (typeof parsed === 'object' && parsed !== null) {
-      const r = parsed.reasoning ?? parsed.analysis ?? parsed.content ?? parsed.text
-      if (typeof r === 'string' && r.length > 0) return r
+
+  // 1. Normalise literal \n / \t sequences into real whitespace first
+  let text = raw.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"')
+
+  // 2. Strip ```json ... ``` or ``` ... ``` fences
+  text = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```\s*$/, '').trim()
+
+  // 3. If the text looks like a JSON object, try to extract the reasoning field
+  const firstBrace = text.indexOf('{')
+  if (firstBrace !== -1) {
+    const jsonCandidate = text.slice(firstBrace)
+
+    // 3a. Try clean JSON.parse on the candidate block
+    const lastBrace = jsonCandidate.lastIndexOf('}')
+    if (lastBrace !== -1) {
+      try {
+        const parsed = JSON.parse(jsonCandidate.slice(0, lastBrace + 1))
+        const r = parsed.reasoning ?? parsed.analysis ?? parsed.content ?? parsed.text
+        if (typeof r === 'string' && r.length > 0) {
+          return r.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"')
+        }
+      } catch { /* fall through to regex */ }
     }
-  } catch {
-    // not JSON — use stripped text as-is
+
+    // 3b. Regex fallback: extract "reasoning": "..." even from malformed JSON
+    // Handles escaped quotes and \n inside the string value
+    const m = jsonCandidate.match(/"reasoning"\s*:\s*"((?:[^"\\]|\\.)*)"/)
+    if (m) {
+      return m[1]
+        .replace(/\\n/g, '\n')
+        .replace(/\\t/g, '\t')
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, '\\')
+    }
   }
-  return stripped
+
+  return text
 }
 
 // ─── Markdown renderer — handles **bold**, - bullets, **Section** headings ──────
 function renderMarkdown(text: string): React.ReactNode[] {
   if (!text) return []
-  return text.split('\n').map((line, i) => {
-    const t = line.trim()
+  // Also split on literal \n sequences that escaped JSON normalisation
+  return text.split(/\n|\\n/).map((line, i) => {
+    // Strip residual literal escape sequences and trim
+    const t = line.replace(/\\n/g, '').replace(/\\t/g, ' ').trim()
     if (!t) return <div key={i} style={{ height: '6px' }} />
 
     // **Round X — Title** or **Section Title** as its own line → heading
-    if (/^\*\*[^*]+\*\*$/.test(t) || /^\*\*Round\s/i.test(t) || /^\*\*[A-Z]/.test(t)) {
-      const clean = t.replace(/^\*\*|\*\*$/g, '')
+    // Strip trailing \n or ** artifacts before matching
+    const tClean = t.replace(/\*\*\\?n?\s*$/, '**').replace(/\\n\s*$/, '')
+    if (/^\*\*[^*]+\*\*$/.test(tClean) || /^\*\*Round\s/i.test(tClean) || /^\*\*[A-Z]/.test(tClean)) {
+      const clean = tClean.replace(/^\*\*|\*\*$/g, '')
       return (
         <div key={i} className="mt-4 mb-1.5 pb-1" style={{ borderBottom: '1px solid rgba(201,168,76,0.15)' }}>
           <span className="font-cinzel text-xs font-bold tracking-wider uppercase" style={{ color: '#C9A84C' }}>
