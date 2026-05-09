@@ -94,16 +94,16 @@ class LLMRouter:
             ("openrouter",      self._openrouter),
         ]
 
-        # DEEP: quality first — SambaNova 405B → Groq → Gemini → Cerebras → OpenRouter
+        # DEEP: Groq → OpenRouter → Gemini → Cerebras → SambaNova
         self._deep_chain = [
             ("groq_user",       self._user_groq),
             ("gemini_user",     self._user_gemini),
             ("openrouter_user", self._user_openrouter),
-            ("sambanova",       self._sambanova),
             ("groq",            self._groq),
+            ("openrouter",      self._openrouter),
             ("gemini",          self._gemini),
             ("cerebras",        self._cerebras),
-            ("openrouter",      self._openrouter),
+            ("sambanova",       self._sambanova),
         ]
 
         # Strip None entries
