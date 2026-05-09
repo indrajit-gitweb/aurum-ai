@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { CheckCircle, Loader, TrendingUp, TrendingDown, Minus, Download, RefreshCw, AlertCircle, ChevronsDown, Square, ChevronDown, Database } from 'lucide-react'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { PERSONAS, VERDICT_CONFIG } from '@/lib/constants'
-import type { WSEvent, FinalResult, DataSnapshot } from '@/hooks/useWebSocket'
+import type { WSEvent, FinalResult, DataSnapshot, NewsItem, InsiderTx, TopHolder } from '@/hooks/useWebSocket'
 
 // ─── Agent Status ──────────────────────────────────────────────────────────────
 type AgentStatus = 'pending' | 'running' | 'complete'
@@ -683,6 +683,172 @@ function DataCard({
   )
 }
 
+// ─── Shared collapsible wrapper for list-type cards ───────────────────────────
+function ListCard({
+  title,
+  accent = '#C9A84C',
+  count,
+  children,
+}: {
+  title: string
+  accent?: string
+  count?: number
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div style={{ border: '1px solid rgba(255,255,255,0.07)', background: '#0d0d0d' }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-5 py-3 transition-colors duration-200 hover:bg-white/[0.02]"
+        data-hover
+      >
+        <div className="flex items-center gap-2">
+          <span className="font-cinzel text-xs font-semibold tracking-widest uppercase" style={{ color: accent }}>
+            {title}
+          </span>
+          {count !== undefined && count > 0 && (
+            <span className="font-cinzel text-xs px-1.5 py-0.5" style={{ background: 'rgba(201,168,76,0.1)', color: 'rgba(201,168,76,0.6)', border: '1px solid rgba(201,168,76,0.2)' }}>
+              {count}
+            </span>
+          )}
+        </div>
+        <motion.div animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.2 }}>
+          <ChevronDown size={14} style={{ color: 'rgba(255,255,255,0.3)' }} />
+        </motion.div>
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className="overflow-hidden"
+          >
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+              {children}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+// ─── News Card ─────────────────────────────────────────────────────────────────
+function NewsCard({ items }: { items: NewsItem[] }) {
+  if (!items || items.length === 0) return null
+  return (
+    <ListCard title="Recent News" count={items.length}>
+      <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+        {items.map((n, i) => (
+          <div key={i} className="px-5 py-3 flex items-start gap-3">
+            <div className="shrink-0 mt-0.5">
+              <span className="font-cinzel text-xs" style={{ color: 'rgba(201,168,76,0.4)' }}>
+                {n.date || '—'}
+              </span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-raleway text-xs leading-snug" style={{ color: 'rgba(255,255,255,0.75)' }}>
+                {n.title}
+              </p>
+              {n.publisher && (
+                <p className="font-raleway text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                  {n.publisher}
+                </p>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </ListCard>
+  )
+}
+
+// ─── Insider Transactions Card ─────────────────────────────────────────────────
+function InsidersCard({ items }: { items: InsiderTx[] }) {
+  if (!items || items.length === 0) return null
+  return (
+    <ListCard title="Insider Transactions" count={items.length}>
+      <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+        {items.map((t, i) => {
+          const isBuy  = t.type?.toLowerCase().includes('buy')  || t.type?.toLowerCase().includes('purchase')
+          const isSell = t.type?.toLowerCase().includes('sell') || t.type?.toLowerCase().includes('sale')
+          const chipColor = isBuy ? '#22c55e' : isSell ? '#ef4444' : '#C0C0C0'
+          const absVal = t.value ? Math.abs(t.value) : null
+          const valStr = absVal
+            ? absVal >= 1e9 ? `$${(absVal / 1e9).toFixed(1)}B`
+            : absVal >= 1e6 ? `$${(absVal / 1e6).toFixed(1)}M`
+            : absVal >= 1e3 ? `$${(absVal / 1e3).toFixed(0)}K`
+            : `$${absVal.toFixed(0)}`
+            : null
+          return (
+            <div key={i} className="px-5 py-3 flex items-center gap-3 flex-wrap">
+              <span className="font-raleway text-xs shrink-0" style={{ color: 'rgba(255,255,255,0.35)', minWidth: 72 }}>
+                {t.date || '—'}
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="font-raleway text-xs font-semibold truncate" style={{ color: 'rgba(255,255,255,0.8)' }}>
+                  {t.name || '—'}
+                </p>
+                <p className="font-raleway text-xs truncate" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                  {t.role || '—'}
+                </p>
+              </div>
+              <span
+                className="font-raleway text-xs font-semibold px-2 py-0.5 shrink-0"
+                style={{ color: chipColor, background: `${chipColor}15`, border: `1px solid ${chipColor}40` }}
+              >
+                {isBuy ? '▲ BUY' : isSell ? '▼ SELL' : t.type?.toUpperCase() || 'OTHER'}
+              </span>
+              {t.shares && (
+                <span className="font-raleway text-xs shrink-0" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                  {t.shares.toLocaleString()} shares
+                </span>
+              )}
+              {valStr && (
+                <span className="font-cinzel text-xs font-bold shrink-0" style={{ color: '#C9A84C' }}>
+                  {valStr}
+                </span>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </ListCard>
+  )
+}
+
+// ─── Top Institutional Holders Card ───────────────────────────────────────────
+function TopHoldersCard({ holders }: { holders: TopHolder[] }) {
+  if (!holders || holders.length === 0) return null
+  return (
+    <ListCard title="Top Institutional Holders" count={holders.length}>
+      <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+        {holders.map((h, i) => (
+          <div key={i} className="px-5 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span
+                className="font-cinzel text-xs font-bold w-5 text-center shrink-0"
+                style={{ color: 'rgba(201,168,76,0.4)' }}
+              >
+                {i + 1}
+              </span>
+              <span className="font-raleway text-xs" style={{ color: 'rgba(255,255,255,0.75)' }}>
+                {h.name}
+              </span>
+            </div>
+            <span className="font-cinzel text-xs font-bold ml-4 shrink-0" style={{ color: '#C9A84C' }}>
+              {h.pct_held}
+            </span>
+          </div>
+        ))}
+      </div>
+    </ListCard>
+  )
+}
+
 function DataSourcesPanel({ snapshot }: { snapshot: DataSnapshot }) {
   const [panelOpen, setPanelOpen] = useState(false)
 
@@ -698,6 +864,7 @@ function DataSourcesPanel({ snapshot }: { snapshot: DataSnapshot }) {
     { title: 'Market & Share Data',      key: 'market',        accent: '#FFD700' },
     { title: 'Macro & Rates (FRED)',     key: 'macro',         accent: '#C0C0C0' },
     { title: 'Analyst Recommendations', key: 'analyst_recs',  accent: '#C9A84C' },
+    { title: 'Earnings Calendar',        key: 'earnings',      accent: '#FFD700' },
   ]
 
   return (
@@ -736,7 +903,8 @@ function DataSourcesPanel({ snapshot }: { snapshot: DataSnapshot }) {
             transition={{ duration: 0.3 }}
             className="overflow-hidden"
           >
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pb-8 items-start">
+            {/* Dict-based data cards — 2-column grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
               {sections.map(({ title, key, accent }) => (
                 <DataCard
                   key={key}
@@ -745,6 +913,13 @@ function DataSourcesPanel({ snapshot }: { snapshot: DataSnapshot }) {
                   accent={accent}
                 />
               ))}
+            </div>
+
+            {/* List-based cards — full-width stack */}
+            <div className="mt-3 space-y-3 pb-8">
+              <NewsCard items={snapshot.news} />
+              <InsidersCard items={snapshot.insider_transactions} />
+              <TopHoldersCard holders={snapshot.top_holders} />
             </div>
           </motion.div>
         )}

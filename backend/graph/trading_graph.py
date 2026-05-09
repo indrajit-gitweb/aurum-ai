@@ -1506,6 +1506,38 @@ class TradingGraph:
                     "Total Analysts": _ar.get("total_analysts"),
                     "Price Target": _ar.get("mean_target"),
                 }),
+                # ── List-type sections ────────────────────────────────────────
+                "earnings": _clean({
+                    "Next Earnings Date": (
+                        state.get("earnings_calendar", {}).get("earnings_date")
+                        or state.get("earnings_calendar", {}).get("earnings_dates")
+                    ),
+                    "EPS Estimate (Avg)":  state.get("earnings_calendar", {}).get("earnings_avg"),
+                    "EPS Estimate (Low)":  state.get("earnings_calendar", {}).get("earnings_low"),
+                    "EPS Estimate (High)": state.get("earnings_calendar", {}).get("earnings_high"),
+                    "Revenue Estimate":    state.get("earnings_calendar", {}).get("revenue_avg"),
+                }),
+                "news": [
+                    {
+                        "title":     n.get("title", ""),
+                        "date":      n.get("date", ""),
+                        "publisher": n.get("publisher", ""),
+                    }
+                    for n in state.get("news", [])[:10]
+                    if n.get("title")
+                ],
+                "insider_transactions": [
+                    {
+                        "name":   t.get("name", ""),
+                        "role":   t.get("role", ""),
+                        "date":   t.get("date", ""),
+                        "type":   t.get("transaction_type", t.get("action", "")),
+                        "shares": t.get("shares"),
+                        "value":  t.get("value") or t.get("total_value"),
+                    }
+                    for t in state.get("insider_transactions", [])[:8]
+                ],
+                "top_holders": _inst.get("top_holders", []),
             })
         except Exception as _snap_exc:
             logger.warning("data_snapshot emit failed: %s", _snap_exc)

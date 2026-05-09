@@ -50,19 +50,43 @@ export interface FinalResult {
   persona_signals: FinalPersonaSignal[]
 }
 
+export interface NewsItem {
+  title: string
+  date: string
+  publisher: string
+}
+
+export interface InsiderTx {
+  name: string
+  role: string
+  date: string
+  type: string
+  shares?: number
+  value?: number
+}
+
+export interface TopHolder {
+  name: string
+  pct_held: string
+}
+
 // DataSnapshot — raw fetched data from yfinance / SEC EDGAR / FRED
 export interface DataSnapshot {
-  company:      Record<string, unknown>
-  valuation:    Record<string, unknown>
-  profitability:Record<string, unknown>
-  financials:   Record<string, unknown>
-  balance_sheet:Record<string, unknown>
-  cash_flow:    Record<string, unknown>
-  growth:       Record<string, unknown>
-  technical:    Record<string, unknown>
-  market:       Record<string, unknown>
-  macro:        Record<string, unknown>
-  analyst_recs: Record<string, unknown>
+  company:               Record<string, unknown>
+  valuation:             Record<string, unknown>
+  profitability:         Record<string, unknown>
+  financials:            Record<string, unknown>
+  balance_sheet:         Record<string, unknown>
+  cash_flow:             Record<string, unknown>
+  growth:                Record<string, unknown>
+  technical:             Record<string, unknown>
+  market:                Record<string, unknown>
+  macro:                 Record<string, unknown>
+  analyst_recs:          Record<string, unknown>
+  earnings:              Record<string, unknown>
+  news:                  NewsItem[]
+  insider_transactions:  InsiderTx[]
+  top_holders:           TopHolder[]
 }
 
 interface UseWebSocketReturn {
