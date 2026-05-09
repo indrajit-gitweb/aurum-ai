@@ -153,7 +153,7 @@ class PersonaSignalDict:
     signal: str        # "bullish" | "bearish" | "neutral"
     confidence: int    # 0–100
     reasoning: str
-    key_points: list   # 3-5 bullet points from the model
+    key_points: list = field(default_factory=list)  # 3-5 bullet points from the model
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1337,6 +1337,7 @@ async def _node_portfolio_manager(
             signal=s["signal"],
             confidence=s["confidence"],
             reasoning=s["reasoning"],
+            key_points=s.get("key_points", []),
         )
         for s in persona_signals_raw
     ]
