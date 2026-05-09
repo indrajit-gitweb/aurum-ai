@@ -47,6 +47,28 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
+
+class TickerNotFoundError(Exception):
+    """Raised when yfinance returns no price data for the requested ticker."""
+    pass
+
+
+def _ticker_not_found_message(ticker: str) -> str:
+    """Return a human-readable error message with exchange-suffix hints."""
+    base = ticker.upper().split(".")[0]   # strip any existing suffix
+    return (
+        f"No market data found for \"{ticker}\". "
+        f"yfinance could not find this symbol on any US exchange.\n\n"
+        f"If this is a non-US stock, add the exchange suffix:\n"
+        f"  • Indian stocks (NSE): {base}.NS  — e.g. RELIANCE.NS, TCS.NS, INFY.NS\n"
+        f"  • Indian stocks (BSE): {base}.BO  — e.g. RELIANCE.BO\n"
+        f"  • UK stocks (LSE):     {base}.L   — e.g. BP.L, HSBA.L, VOD.L\n"
+        f"  • German stocks:       {base}.DE  — e.g. BMW.DE, SAP.DE\n"
+        f"  • Hong Kong:           {base}.HK  — e.g. 0700.HK\n\n"
+        f"For US stocks verify the exact ticker at finance.yahoo.com"
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Persona registry (minimal fallback for unknown personas)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -330,6 +352,10 @@ async def _node_data_fetch(state: AurumState, on_event: Callable) -> None:
         yf_client.get_price_history, state["start_date"], state["end_date"]
     )
     state["price_history"] = df
+
+    if df.empty:
+        raise TickerNotFoundError(_ticker_not_found_message(state["ticker"]))
+
     await on_event(
         {
             "type": "agent_complete",

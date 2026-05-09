@@ -186,14 +186,17 @@ export function useWebSocket(sessionId: string | null): UseWebSocketReturn {
             setIsComplete(true)
           }
 
-          // ── Stop reconnecting if the session was already consumed ──
-          if (
-            event.type === 'error' &&
-            typeof event.message === 'string' &&
-            (event.message.includes('Session not found') || event.message.includes('expired'))
-          ) {
-            sessionLostRef.current = true
-            setError('Session expired — please start a new analysis.')
+          // ── Any server error: show banner and stop reconnecting ──────────
+          if (event.type === 'error' && typeof event.message === 'string') {
+            sessionLostRef.current = true   // stop reconnect loop
+            if (
+              event.message.includes('Session not found') ||
+              event.message.includes('expired')
+            ) {
+              setError('Session expired — please start a new analysis.')
+            } else {
+              setError(event.message)
+            }
           }
         } catch {
           // ignore JSON parse errors

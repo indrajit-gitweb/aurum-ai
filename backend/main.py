@@ -292,7 +292,7 @@ async def analyze_websocket(websocket: WebSocket, session_id: str) -> None:
 
     try:
         from llm.router import LLMRouter
-        from graph.trading_graph import TradingGraph
+        from graph.trading_graph import TradingGraph, TickerNotFoundError
 
         llm_router = LLMRouter(
             user_groq_key=request.user_groq_key,
@@ -342,6 +342,12 @@ async def analyze_websocket(websocket: WebSocket, session_id: str) -> None:
                     ),
                 }
             )
+        except Exception:
+            pass
+    except TickerNotFoundError as exc:
+        logger.warning("Ticker not found for session %s: %s", session_id, exc)
+        try:
+            await websocket.send_json({"type": "error", "message": str(exc)})
         except Exception:
             pass
     except Exception as exc:
