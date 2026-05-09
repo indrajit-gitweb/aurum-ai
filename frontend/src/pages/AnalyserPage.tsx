@@ -488,9 +488,23 @@ export default function AnalyserPage() {
                     />
                   </div>
                   {form.analysisMode === 'historical' && (
-                    <p className="font-raleway text-xs mt-2" style={{ color: 'rgba(201,168,76,0.5)' }}>
-                      In Historical mode the end date determines which annual filing is used for fundamentals & valuation multiples.
-                    </p>
+                    <div
+                      className="mt-4 px-4 py-3 space-y-2"
+                      style={{ background: 'rgba(201,168,76,0.04)', borderLeft: '2px solid rgba(201,168,76,0.3)' }}
+                    >
+                      <p className="font-raleway text-xs font-semibold" style={{ color: 'rgba(201,168,76,0.8)' }}>
+                        How Historical mode works
+                      </p>
+                      <p className="font-raleway text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.45)' }}>
+                        Every publicly listed company files an <span style={{ color: 'rgba(201,168,76,0.7)' }}>annual report</span> (10-K) once a year containing its audited income statement, balance sheet, and cash flow. In Historical mode, the analysts read the report filed <span style={{ color: 'rgba(201,168,76,0.7)' }}>closest to your end date</span> — not today's latest numbers.
+                      </p>
+                      <p className="font-raleway text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.45)' }}>
+                        <span style={{ color: 'rgba(201,168,76,0.7)' }}>Example:</span> set End Date to <span style={{ color: 'rgba(255,255,255,0.65)' }}>Dec 2022</span> to see Apple as it looked at the end of FY2022 — revenue of $394B, P/E of ~21×, margins from that filing — not 2025 figures. Useful for backtesting a thesis or reviewing a past investment decision.
+                      </p>
+                      <p className="font-raleway text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                        Price data, RSI, and momentum indicators are also computed over your selected range, so everything is anchored to the same period.
+                      </p>
+                    </div>
                   )}
                 </motion.div>
               )}

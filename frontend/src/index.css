@@ -17,6 +17,11 @@
   cursor: none !important;
 }
 
+/* Hide the browser's native calendar icon on date inputs — we use our own */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  display: none;
+}
+
 html {
   scroll-behavior: smooth;
 }
