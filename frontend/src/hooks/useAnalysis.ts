@@ -26,6 +26,7 @@ interface UseAnalysisReturn {
   togglePersona: (id: PersonaId) => void
   setApiKey: (provider: keyof ApiKeys, value: string) => void
   selectAll: () => void
+  selectCategory: (ids: PersonaId[]) => void
   resetToDefault: () => void
   startAnalysis: () => Promise<string | null>
   validate: () => string | null
@@ -74,6 +75,14 @@ export function useAnalysis(): UseAnalysisReturn {
 
   const selectAll = useCallback(() => {
     setForm((f) => ({ ...f, selectedPersonas: PERSONAS.map((p) => p.id) as PersonaId[] }))
+  }, [])
+
+  // Add all personas in a category to the selection without deselecting others
+  const selectCategory = useCallback((ids: PersonaId[]) => {
+    setForm((f) => ({
+      ...f,
+      selectedPersonas: Array.from(new Set([...f.selectedPersonas, ...ids])) as PersonaId[],
+    }))
   }, [])
 
   const resetToDefault = useCallback(() => {
@@ -133,6 +142,7 @@ export function useAnalysis(): UseAnalysisReturn {
     togglePersona,
     setApiKey,
     selectAll,
+    selectCategory,
     resetToDefault,
     startAnalysis,
     validate,

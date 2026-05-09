@@ -137,6 +137,46 @@ export const DEFAULT_PERSONAS: PersonaId[] = [
   "news_sentiment",
 ]
 
+// ─── Persona Categories ───────────────────────────────────────────────────────
+export interface PersonaCategory {
+  id: string
+  label: string
+  description: string
+  useCase: string
+  personas: PersonaId[]
+}
+
+export const PERSONA_CATEGORIES: PersonaCategory[] = [
+  {
+    id: 'value',
+    label: 'Value',
+    description: 'Cheap, undervalued or hated stocks',
+    useCase: 'Best for stocks trading below intrinsic value, out-of-favour sectors, distressed businesses, or deep contrarian setups where the market is clearly wrong',
+    personas: ['buffett', 'graham', 'munger', 'pabrai', 'burry'],
+  },
+  {
+    id: 'growth',
+    label: 'Growth',
+    description: 'High-growth, expanding revenue, tech/consumer',
+    useCase: 'Best for high-revenue-growth companies, expanding TAMs, SaaS platforms, disruptive technology, and emerging market compounders',
+    personas: ['fisher', 'lynch', 'growth_agent', 'jhunjhunwala', 'cathie_wood'],
+  },
+  {
+    id: 'macro',
+    label: 'Macro & Activist',
+    description: 'Macro-driven bets, turnarounds, activist angle',
+    useCase: 'Best when Fed policy, macro cycle positioning, or an activist catalyst (spin-off, buyback, cost restructure) is central to the thesis',
+    personas: ['druckenmiller', 'ackman'],
+  },
+  {
+    id: 'risk',
+    label: 'Risk & Quant',
+    description: 'Tail-risk check, rigorous DCF, market sentiment',
+    useCase: 'Best for stress-testing a thesis against black-swan scenarios, running a rigorous DCF, and reading current news flow and insider signals',
+    personas: ['taleb', 'damodaran', 'news_sentiment'],
+  },
+]
+
 export const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000"
 
 export const SIGNAL_COLORS = {

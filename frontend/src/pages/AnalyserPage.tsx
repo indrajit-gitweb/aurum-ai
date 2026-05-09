@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, Eye, EyeOff, AlertTriangle, RotateCcw, CheckSquare } from 'lucide-react'
+import { ChevronDown, Eye, EyeOff, AlertTriangle, RotateCcw, Layers } from 'lucide-react'
 import { useAnalysis } from '@/hooks/useAnalysis'
-import { PERSONAS } from '@/lib/constants'
+import { PERSONAS, PERSONA_CATEGORIES } from '@/lib/constants'
 import type { PersonaId } from '@/lib/constants'
 import GoldDivider from '@/components/layout/GoldDivider'
 
@@ -123,8 +123,19 @@ function SelectablePersonaCard({
       </div>
 
       <p className="font-cinzel text-xs font-semibold text-white mb-0.5 truncate">{persona.name}</p>
-      <p className="font-raleway text-xs" style={{ color: 'rgba(201,168,76,0.7)' }}>
+      <p className="font-raleway text-xs mb-1" style={{ color: 'rgba(201,168,76,0.7)' }}>
         {persona.style}
+      </p>
+      <p
+        className="font-raleway leading-snug"
+        style={{
+          color: 'rgba(255,255,255,0.28)',
+          fontSize: '10px',
+          overflow: 'hidden',
+          maxHeight: '28px',
+        }}
+      >
+        {persona.description}
       </p>
     </motion.button>
   )
@@ -177,16 +188,38 @@ export default function AnalyserPage() {
     togglePersona,
     setApiKey,
     selectAll,
+    selectCategory,
     resetToDefault,
     startAnalysis,
   } = useAnalysis()
 
   const [apiKeysOpen, setApiKeysOpen] = useState(false)
+  const [activeCategory, setActiveCategory] = useState<string>('value')
+
+  // Compute which personas to show based on active tab
+  const activeCategoryData = PERSONA_CATEGORIES.find((c) => c.id === activeCategory)
+  const visiblePersonas =
+    activeCategory === 'all'
+      ? [...PERSONAS]
+      : PERSONAS.filter((p) => activeCategoryData?.personas.includes(p.id as PersonaId))
+
+  // Count selected within the currently visible category
+  const selectedInView = visiblePersonas.filter((p) =>
+    form.selectedPersonas.includes(p.id as PersonaId)
+  ).length
+
+  // "Select all in category" handler — additive (preserves cross-category picks)
+  const handleSelectCategory = () => {
+    if (activeCategory === 'all') {
+      selectAll()
+    } else if (activeCategoryData) {
+      selectCategory(activeCategoryData.personas as PersonaId[])
+    }
+  }
 
   const handleStart = async () => {
     const sessionId = await startAnalysis()
     if (sessionId) {
-      // Persist ticker + selected persona count so LiveAnalysisPage shows correct progress
       sessionStorage.setItem(`ticker_${sessionId}`, form.ticker)
       sessionStorage.setItem('last_ticker', form.ticker)
       sessionStorage.setItem(`personas_${sessionId}`, JSON.stringify(form.selectedPersonas))
@@ -244,8 +277,10 @@ export default function AnalyserPage() {
                 NYSE · NASDAQ · Global markets
               </p>
               <p className="font-raleway text-xs mt-1" style={{ color: 'rgba(201,168,76,0.45)' }}>
-                Indian stocks: add <span style={{ fontFamily: 'monospace', color: 'rgba(201,168,76,0.7)' }}>.NS</span> for NSE
-                or <span style={{ fontFamily: 'monospace', color: 'rgba(201,168,76,0.7)' }}>.BO</span> for BSE
+                Indian stocks: add{' '}
+                <span style={{ fontFamily: 'monospace', color: 'rgba(201,168,76,0.7)' }}>.NS</span> for NSE
+                or{' '}
+                <span style={{ fontFamily: 'monospace', color: 'rgba(201,168,76,0.7)' }}>.BO</span> for BSE
                 &nbsp;(e.g. <span style={{ fontFamily: 'monospace' }}>RELIANCE.NS</span>)
               </p>
             </div>
@@ -279,32 +314,126 @@ export default function AnalyserPage() {
           transition={{ delay: 0.25 }}
           className="mb-14"
         >
-          <div className="flex items-center justify-between mb-8">
+          {/* Section header */}
+          <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
               <span className="font-cinzel font-bold text-2xl" style={{ color: 'rgba(201,168,76,0.4)' }}>02</span>
               <h2 className="font-cinzel font-semibold text-white text-lg">Select Your Analysts</h2>
             </div>
+            <button
+              onClick={resetToDefault}
+              className="flex items-center gap-2 font-raleway text-xs tracking-widest uppercase px-4 py-2 transition-all duration-200 hover:border-gold/50 hover:text-gold"
+              style={{ border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)' }}
+              data-hover
+            >
+              <RotateCcw size={13} />
+              Default
+            </button>
+          </div>
 
-            <div className="flex items-center gap-3">
-              <button
-                onClick={selectAll}
-                className="flex items-center gap-2 font-raleway text-xs tracking-widest uppercase px-4 py-2 transition-all duration-200 hover:border-gold/50 hover:text-gold"
-                style={{ border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)' }}
-                data-hover
+          {/* Category tabs */}
+          <div className="flex flex-wrap gap-2 mb-5">
+            {PERSONA_CATEGORIES.map((cat) => {
+              const selectedInCat = cat.personas.filter((id) =>
+                form.selectedPersonas.includes(id as PersonaId)
+              ).length
+              const isActive = activeCategory === cat.id
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => setActiveCategory(cat.id)}
+                  className="flex items-center gap-2 font-raleway text-xs tracking-wide px-4 py-2 transition-all duration-200"
+                  style={{
+                    background: isActive ? 'rgba(201,168,76,0.08)' : 'transparent',
+                    border: `1px solid ${isActive ? 'rgba(201,168,76,0.45)' : 'rgba(255,255,255,0.08)'}`,
+                    color: isActive ? '#C9A84C' : 'rgba(255,255,255,0.4)',
+                  }}
+                  data-hover
+                >
+                  <span>{cat.label}</span>
+                  <span
+                    className="font-cinzel font-bold px-1.5 py-0.5"
+                    style={{
+                      fontSize: '10px',
+                      background: isActive ? 'rgba(201,168,76,0.15)' : 'rgba(255,255,255,0.05)',
+                      color: isActive
+                        ? selectedInCat > 0 ? '#FFD700' : 'rgba(201,168,76,0.5)'
+                        : 'rgba(255,255,255,0.25)',
+                    }}
+                  >
+                    {selectedInCat}/{cat.personas.length}
+                  </span>
+                </button>
+              )
+            })}
+
+            {/* All tab */}
+            <button
+              onClick={() => setActiveCategory('all')}
+              className="flex items-center gap-2 font-raleway text-xs tracking-wide px-4 py-2 transition-all duration-200"
+              style={{
+                background: activeCategory === 'all' ? 'rgba(201,168,76,0.08)' : 'transparent',
+                border: `1px solid ${activeCategory === 'all' ? 'rgba(201,168,76,0.45)' : 'rgba(255,255,255,0.08)'}`,
+                color: activeCategory === 'all' ? '#C9A84C' : 'rgba(255,255,255,0.4)',
+              }}
+              data-hover
+            >
+              <Layers size={12} />
+              <span>All 15</span>
+              <span
+                className="font-cinzel font-bold px-1.5 py-0.5"
+                style={{
+                  fontSize: '10px',
+                  background: activeCategory === 'all' ? 'rgba(201,168,76,0.15)' : 'rgba(255,255,255,0.05)',
+                  color: activeCategory === 'all' ? '#FFD700' : 'rgba(255,255,255,0.25)',
+                }}
               >
-                <CheckSquare size={13} />
-                All
-              </button>
-              <button
-                onClick={resetToDefault}
-                className="flex items-center gap-2 font-raleway text-xs tracking-widest uppercase px-4 py-2 transition-all duration-200 hover:border-gold/50 hover:text-gold"
-                style={{ border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)' }}
-                data-hover
+                {selectedCount}/{PERSONAS.length}
+              </span>
+            </button>
+          </div>
+
+          {/* Category use-case description */}
+          <AnimatePresence mode="wait">
+            {activeCategory !== 'all' && activeCategoryData && (
+              <motion.div
+                key={activeCategory}
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.15 }}
+                className="mb-4 px-3 py-2"
+                style={{ borderLeft: '2px solid rgba(201,168,76,0.3)' }}
               >
-                <RotateCcw size={13} />
-                Default
-              </button>
-            </div>
+                <p className="font-raleway text-xs" style={{ color: 'rgba(255,255,255,0.45)' }}>
+                  {activeCategoryData.useCase}
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Sub-header: token counter + select-category action */}
+          <div className="flex items-center justify-between mb-4">
+            <p className="font-raleway text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>
+              {selectedCount} analyst{selectedCount !== 1 ? 's' : ''} selected ·{' '}
+              <span style={{ color: 'rgba(201,168,76,0.7)' }}>~{tokenEstimate.toLocaleString()} tokens</span>
+              {activeCategory !== 'all' && (
+                <span style={{ color: 'rgba(255,255,255,0.2)' }}>
+                  {' '}· {selectedInView} of {visiblePersonas.length} in this category
+                </span>
+              )}
+            </p>
+            <button
+              onClick={handleSelectCategory}
+              className="font-raleway text-xs tracking-wide px-3 py-1.5 transition-all duration-200 hover:border-gold/40"
+              style={{
+                border: '1px solid rgba(201,168,76,0.2)',
+                color: 'rgba(201,168,76,0.65)',
+              }}
+              data-hover
+            >
+              {activeCategory === 'all' ? 'Select All 15' : `Select All ${activeCategoryData?.label}`}
+            </button>
           </div>
 
           {/* Warning for >10 */}
@@ -314,35 +443,38 @@ export default function AnalyserPage() {
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
-                className="flex items-center gap-3 mb-6 px-4 py-3"
+                className="flex items-center gap-3 mb-4 px-4 py-3"
                 style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.2)' }}
               >
                 <AlertTriangle size={16} style={{ color: '#eab308' }} />
                 <p className="font-raleway text-xs" style={{ color: 'rgba(255,255,255,0.7)' }}>
-                  <span style={{ color: '#eab308' }}>{selectedCount} analysts selected</span> — this will use more tokens and may be slower
+                  <span style={{ color: '#eab308' }}>{selectedCount} analysts selected</span> — this will use
+                  more tokens and may be slower on shared rate limits
                 </p>
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* Token estimator */}
-          <div className="flex items-center gap-2 mb-6">
-            <p className="font-raleway text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>
-              {selectedCount} analyst{selectedCount !== 1 ? 's' : ''} selected ·{' '}
-              <span style={{ color: 'rgba(201,168,76,0.7)' }}>~{tokenEstimate.toLocaleString()} tokens</span>
-            </p>
-          </div>
-
-          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
-            {PERSONAS.map((persona) => (
-              <SelectablePersonaCard
-                key={persona.id}
-                persona={persona}
-                selected={form.selectedPersonas.includes(persona.id as PersonaId)}
-                onToggle={() => togglePersona(persona.id as PersonaId)}
-              />
-            ))}
-          </div>
+          {/* Persona cards — animated on tab switch */}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeCategory}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.18 }}
+              className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2"
+            >
+              {visiblePersonas.map((persona) => (
+                <SelectablePersonaCard
+                  key={persona.id}
+                  persona={persona}
+                  selected={form.selectedPersonas.includes(persona.id as PersonaId)}
+                  onToggle={() => togglePersona(persona.id as PersonaId)}
+                />
+              ))}
+            </motion.div>
+          </AnimatePresence>
         </motion.div>
 
         <GoldDivider className="mb-14" />
