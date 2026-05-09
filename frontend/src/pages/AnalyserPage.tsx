@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, Eye, EyeOff, AlertTriangle, RotateCcw, Layers, Clock, TrendingUp } from 'lucide-react'
+import { ChevronDown, Eye, EyeOff, AlertTriangle, RotateCcw, Layers, Clock, TrendingUp, CalendarDays } from 'lucide-react'
 import { useAnalysis } from '@/hooks/useAnalysis'
 import { PERSONAS, PERSONA_CATEGORIES, ANALYSIS_WINDOWS } from '@/lib/constants'
 import type { PersonaId, AnalysisWindow, AnalysisMode } from '@/lib/constants'
@@ -175,6 +175,70 @@ function ApiKeyRow({
   )
 }
 
+// ─── Gold Date Input (with visible calendar icon) ─────────────────────────────
+function GoldDateInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [focused, setFocused] = useState(false)
+
+  return (
+    <div className="relative">
+      <p className="font-raleway text-xs tracking-widest uppercase mb-2" style={{ color: 'rgba(255,255,255,0.35)' }}>
+        {label}
+      </p>
+      <div className="relative flex items-center">
+        <input
+          ref={inputRef}
+          type="date"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          className="w-full bg-transparent font-raleway text-sm py-2.5 pr-9 outline-none"
+          style={{
+            borderBottom: `1px solid ${focused ? '#C9A84C' : 'rgba(255,255,255,0.15)'}`,
+            color: value ? '#ffffff' : 'rgba(255,255,255,0.35)',
+            colorScheme: 'dark',
+          }}
+        />
+        {/* Visible calendar icon — click to open native picker */}
+        <button
+          type="button"
+          onClick={() => { inputRef.current?.showPicker?.(); inputRef.current?.focus() }}
+          className="absolute right-0 top-1.5 transition-colors duration-200"
+          style={{ color: focused ? '#C9A84C' : 'rgba(201,168,76,0.55)' }}
+          tabIndex={-1}
+        >
+          <CalendarDays size={17} />
+        </button>
+        {/* Gold focus line */}
+        <div
+          className="absolute bottom-0 left-0 h-px transition-all duration-500"
+          style={{
+            width: focused ? '100%' : '0%',
+            background: 'linear-gradient(90deg, #C9A84C, #FFD700)',
+            boxShadow: '0 0 8px rgba(201,168,76,0.4)',
+          }}
+        />
+      </div>
+    </div>
+  )
+}
+
+/** Format "2023-04-15" → "Apr '23" for the Custom button label */
+function fmtMonth(dateStr: string): string {
+  if (!dateStr) return ''
+  const d = new Date(dateStr + 'T00:00:00')
+  return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+}
+
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 export default function AnalyserPage() {
   const navigate = useNavigate()
@@ -185,6 +249,8 @@ export default function AnalyserPage() {
     setTicker,
     setAnalysisWindow,
     setAnalysisMode,
+    setCustomStartDate,
+    setCustomEndDate,
     togglePersona,
     setApiKey,
     selectAll,
@@ -344,7 +410,8 @@ export default function AnalyserPage() {
                 : 'Historical Period — analysis as of this many months ago'}
             </p>
             <div className="flex gap-2 flex-wrap">
-              {ANALYSIS_WINDOWS.map((w) => {
+              {/* Preset buttons (exclude 'custom') */}
+              {ANALYSIS_WINDOWS.filter((w) => w !== 'custom').map((w) => {
                 const active = form.analysisWindow === w
                 return (
                   <button
@@ -365,7 +432,71 @@ export default function AnalyserPage() {
                   </button>
                 )
               })}
+
+              {/* Custom button */}
+              {(() => {
+                const active = form.analysisWindow === 'custom'
+                const hasRange = active && form.customStartDate && form.customEndDate
+                return (
+                  <button
+                    onClick={() => setAnalysisWindow('custom')}
+                    className="flex items-center gap-2 font-cinzel font-bold px-4 py-2 transition-all duration-200"
+                    style={{
+                      background: active ? 'rgba(201,168,76,0.12)' : 'transparent',
+                      border: `1px solid ${active ? '#C9A84C' : 'rgba(255,255,255,0.1)'}`,
+                      color: active ? '#FFD700' : 'rgba(255,255,255,0.35)',
+                      boxShadow: active ? '0 0 14px rgba(201,168,76,0.15)' : 'none',
+                      fontSize: '13px',
+                      letterSpacing: '0.08em',
+                    }}
+                    data-hover
+                  >
+                    <CalendarDays size={14} />
+                    <span>
+                      {hasRange
+                        ? `${fmtMonth(form.customStartDate)} → ${fmtMonth(form.customEndDate)}`
+                        : 'Custom'}
+                    </span>
+                  </button>
+                )
+              })()}
             </div>
+
+            {/* Custom date inputs — slide open when Custom is selected */}
+            <AnimatePresence>
+              {form.analysisWindow === 'custom' && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.25, ease: 'easeInOut' }}
+                  className="overflow-hidden"
+                >
+                  <div
+                    className="mt-4 p-5 grid grid-cols-2 gap-8"
+                    style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(201,168,76,0.12)' }}
+                  >
+                    <GoldDateInput
+                      label="Start Date"
+                      value={form.customStartDate}
+                      onChange={setCustomStartDate}
+                    />
+                    <GoldDateInput
+                      label="End Date"
+                      value={form.customEndDate}
+                      onChange={setCustomEndDate}
+                    />
+                  </div>
+                  {form.analysisMode === 'historical' && (
+                    <p className="font-raleway text-xs mt-2" style={{ color: 'rgba(201,168,76,0.5)' }}>
+                      In Historical mode the end date determines which annual filing is used for fundamentals & valuation multiples.
+                    </p>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Animated caption */}
             <AnimatePresence mode="wait">
               <motion.p
                 key={`${form.analysisMode}-${form.analysisWindow}`}
@@ -373,12 +504,16 @@ export default function AnalyserPage() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.2 }}
-                className="font-raleway text-xs mt-2"
+                className="font-raleway text-xs mt-3"
                 style={{ color: 'rgba(255,255,255,0.22)' }}
               >
                 {form.analysisMode === 'current'
-                  ? `Fundamentals always reflect the latest available data. Price indicators use the last ${form.analysisWindow}.`
-                  : `Financial statements and valuations reflect the annual report closest to ${form.analysisWindow} ago. Price data also covers this period.`}
+                  ? form.analysisWindow === 'custom'
+                    ? 'Fundamentals always reflect the latest available data. Price indicators use your custom date range.'
+                    : `Fundamentals always reflect the latest available data. Price indicators use the last ${form.analysisWindow}.`
+                  : form.analysisWindow === 'custom'
+                    ? 'Financial statements reflect the annual report closest to your end date. Price data covers your selected range.'
+                    : `Financial statements and valuations reflect the annual report closest to ${form.analysisWindow} ago. Price data also covers this period.`}
               </motion.p>
             </AnimatePresence>
           </div>

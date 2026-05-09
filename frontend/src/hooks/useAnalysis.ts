@@ -13,6 +13,8 @@ interface AnalysisForm {
   ticker: string
   analysisWindow: AnalysisWindow
   analysisMode: AnalysisMode
+  customStartDate: string
+  customEndDate: string
   selectedPersonas: PersonaId[]
   apiKeys: ApiKeys
 }
@@ -24,6 +26,8 @@ interface UseAnalysisReturn {
   setTicker: (v: string) => void
   setAnalysisWindow: (w: AnalysisWindow) => void
   setAnalysisMode: (m: AnalysisMode) => void
+  setCustomStartDate: (v: string) => void
+  setCustomEndDate: (v: string) => void
   togglePersona: (id: PersonaId) => void
   setApiKey: (provider: keyof ApiKeys, value: string) => void
   selectAll: () => void
@@ -33,10 +37,17 @@ interface UseAnalysisReturn {
   validate: () => string | null
 }
 
-/** Compute YYYY-MM-DD dates from a window preset and today */
-function windowToDates(window: AnalysisWindow): { startDate: string; endDate: string } {
+/** Compute YYYY-MM-DD start/end dates from a window preset (or custom dates) */
+function windowToDates(
+  window: AnalysisWindow,
+  customStart: string,
+  customEnd: string,
+): { startDate: string; endDate: string } {
+  if (window === 'custom') {
+    return { startDate: customStart, endDate: customEnd }
+  }
   const today = new Date()
-  const months = WINDOW_MONTHS[window]
+  const months = WINDOW_MONTHS[window as Exclude<AnalysisWindow, 'custom'>]
   const start = new Date(today.getFullYear(), today.getMonth() - months, today.getDate())
   return {
     startDate: start.toISOString().split('T')[0],
@@ -49,6 +60,8 @@ export function useAnalysis(): UseAnalysisReturn {
     ticker: '',
     analysisWindow: '1Y',
     analysisMode: 'current',
+    customStartDate: '',
+    customEndDate: '',
     selectedPersonas: [],
     apiKeys: { groq: '', gemini: '', openrouter: '' },
   })
@@ -65,6 +78,14 @@ export function useAnalysis(): UseAnalysisReturn {
 
   const setAnalysisMode = useCallback((m: AnalysisMode) => {
     setForm((f) => ({ ...f, analysisMode: m }))
+  }, [])
+
+  const setCustomStartDate = useCallback((v: string) => {
+    setForm((f) => ({ ...f, customStartDate: v }))
+  }, [])
+
+  const setCustomEndDate = useCallback((v: string) => {
+    setForm((f) => ({ ...f, customEndDate: v }))
   }, [])
 
   const togglePersona = useCallback((id: PersonaId) => {
@@ -98,6 +119,12 @@ export function useAnalysis(): UseAnalysisReturn {
   const validate = useCallback((): string | null => {
     if (!form.ticker) return 'Please enter a stock ticker'
     if (form.ticker.length > 10) return 'Invalid ticker symbol'
+    if (form.analysisWindow === 'custom') {
+      if (!form.customStartDate || !form.customEndDate)
+        return 'Please fill in both custom dates'
+      if (new Date(form.customStartDate) >= new Date(form.customEndDate))
+        return 'Start date must be before end date'
+    }
     if (form.selectedPersonas.length === 0) return 'Please select at least one analyst'
     return null
   }, [form])
@@ -113,7 +140,11 @@ export function useAnalysis(): UseAnalysisReturn {
     setError(null)
 
     try {
-      const { startDate, endDate } = windowToDates(form.analysisWindow)
+      const { startDate, endDate } = windowToDates(
+        form.analysisWindow,
+        form.customStartDate,
+        form.customEndDate,
+      )
       const payload = {
         ticker: form.ticker,
         start_date: startDate,
@@ -145,6 +176,8 @@ export function useAnalysis(): UseAnalysisReturn {
     setTicker,
     setAnalysisWindow,
     setAnalysisMode,
+    setCustomStartDate,
+    setCustomEndDate,
     togglePersona,
     setApiKey,
     selectAll,

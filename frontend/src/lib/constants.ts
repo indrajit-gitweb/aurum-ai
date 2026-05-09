@@ -178,12 +178,12 @@ export const PERSONA_CATEGORIES: PersonaCategory[] = [
 ]
 
 // ─── Analysis Window & Mode ──────────────────────────────────────────────────
-export const ANALYSIS_WINDOWS = ['3M', '6M', '1Y', '2Y', '3Y', '5Y'] as const
+export const ANALYSIS_WINDOWS = ['3M', '6M', '1Y', '2Y', '3Y', '5Y', 'custom'] as const
 export type AnalysisWindow = typeof ANALYSIS_WINDOWS[number]
 export type AnalysisMode = 'current' | 'historical'
 
-/** Number of months each preset window represents */
-export const WINDOW_MONTHS: Record<AnalysisWindow, number> = {
+/** Number of months each preset window represents (custom has no fixed months) */
+export const WINDOW_MONTHS: Record<Exclude<AnalysisWindow, 'custom'>, number> = {
   '3M': 3, '6M': 6, '1Y': 12, '2Y': 24, '3Y': 36, '5Y': 60,
 }
 
