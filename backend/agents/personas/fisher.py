@@ -116,6 +116,7 @@ DILUTION RISK (Point 13):
 
 LONG-TERM ORIENTATION (Point 12):
   Capex Investment Rate: {metrics.get('capex_to_revenue', 'N/A')}
+  Dividend Yield: {metrics.get('dividend_yield', 'N/A')}
   Dividend Policy: {metrics.get('dividend_history', 'N/A')}
 
 Score this against your 15-point checklist. How many criteria does it pass?

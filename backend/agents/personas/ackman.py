@@ -109,6 +109,7 @@ BARRIERS TO ENTRY:
 
 CAPITAL ALLOCATION:
   Share Buybacks (last 3yr): {metrics.get('buybacks_3yr', 'N/A')}
+  Shares Outstanding Change (3yr): {metrics.get('shares_change_3yr', 'N/A')} (negative = float shrinking ✓)
   Dividend Yield: {metrics.get('dividend_yield', 'N/A')}
   M&A Strategy: {company.get('ma_history', 'N/A')}
   Management Compensation vs FCF: {company.get('comp_vs_fcf', 'N/A')}

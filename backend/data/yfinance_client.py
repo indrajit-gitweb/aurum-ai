@@ -245,6 +245,20 @@ class YFinanceClient:
                 result["current_ratio"] = round(ca / cl, 2)
             if td is not None and eq and eq != 0:
                 result["debt_equity"] = round(td / eq, 2)
+            # Working-capital change vs prior year (two-period comparison)
+            try:
+                if bs.shape[1] >= 2:
+                    prior_col = bs.iloc[:, 1]
+                    prior_raw = {str(k): (None if pd.isna(v) else float(v)) for k, v in prior_col.items()}
+                    prior_data = _normalize_statement(prior_raw, _BALANCE_ALIASES)
+                    ca_p = prior_data.get("current_assets")
+                    cl_p = prior_data.get("current_liabilities")
+                    wc_now   = (ca - cl) if ca and cl else None
+                    wc_prior = (ca_p - cl_p) if ca_p and cl_p else None
+                    if wc_now is not None and wc_prior is not None:
+                        result["working_capital_change"] = round(wc_now - wc_prior, 0)
+            except Exception:
+                pass
             return result
         except Exception as exc:
             logger.warning("[%s] get_balance_sheet failed: %s", self.ticker, exc)
@@ -531,6 +545,50 @@ class YFinanceClient:
             logger.warning("[%s] get_institutional_ownership failed: %s", self.ticker, exc)
             return {}
 
+    def get_shares_outstanding_change(self) -> dict:
+        """Return % change in shares outstanding over ~3 years.
+
+        Reads the balance sheet's "Ordinary Shares Number" (or equivalent) row
+        across multiple annual periods and computes the percentage change from
+        the earliest available period (~3 years ago) to the most recent.
+
+        A negative value means the company has been buying back shares (good for
+        per-share metrics).  A positive value signals dilution.
+
+        Returns:
+            Dict with keys: shares_current, shares_prior, shares_change_3yr.
+            Empty dict on failure or insufficient history.
+        """
+        try:
+            bs = self._yf.balance_sheet
+            if bs is None or bs.empty or bs.shape[1] < 2:
+                return {}
+            # yfinance uses "Ordinary Shares Number" for common share count
+            share_row = next(
+                (r for r in bs.index
+                 if "ordinary" in str(r).lower()
+                 or ("share" in str(r).lower() and "number" in str(r).lower())),
+                None,
+            )
+            if share_row is None:
+                return {}
+            vals = bs.loc[share_row].dropna()
+            if len(vals) < 2:
+                return {}
+            current = float(vals.iloc[0])
+            prior   = float(vals.iloc[min(3, len(vals) - 1)])  # ~3 years ago
+            if prior == 0:
+                return {}
+            pct_change = (current - prior) / abs(prior)
+            return {
+                "shares_current":    int(current),
+                "shares_prior":      int(prior),
+                "shares_change_3yr": f"{pct_change:+.1%}",
+            }
+        except Exception as exc:
+            logger.warning("[%s] get_shares_outstanding_change failed: %s", self.ticker, exc)
+            return {}
+
     # ─────────────────────────────────────────────────────────────────────────
     # Technical indicators
     # ─────────────────────────────────────────────────────────────────────────
@@ -586,6 +644,26 @@ class YFinanceClient:
 
             current_price = float(close.iloc[-1])
 
+            # Trend direction from price vs 200-day SMA
+            trend_direction = None
+            if sma200:
+                trend_direction = "uptrend" if current_price > sma200 else "downtrend"
+
+            # Relative strength vs S&P 500 over the same period (Druckenmiller uses this)
+            relative_strength_vs_spy: Optional[str] = None
+            stock_return_1yr: Optional[str] = None
+            spy_return_1yr: Optional[str] = None
+            try:
+                spy_df = yf.Ticker("SPY").history(start=start, end=end, interval="1d")
+                if not spy_df.empty and not df.empty:
+                    stk_ret = (current_price / float(close.iloc[0]) - 1)
+                    spy_ret = (float(spy_df["Close"].iloc[-1]) / float(spy_df["Close"].iloc[0]) - 1)
+                    relative_strength_vs_spy = f"{(stk_ret - spy_ret):+.1%}"
+                    stock_return_1yr = f"{stk_ret:+.1%}"
+                    spy_return_1yr   = f"{spy_ret:+.1%}"
+            except Exception:
+                pass
+
             return {
                 "current_price": current_price,
                 "sma_20": _safe_float(sma20),
@@ -606,6 +684,10 @@ class YFinanceClient:
                 "price_vs_sma200": (
                     round((current_price / sma200 - 1) * 100, 2) if sma200 else None
                 ),
+                "trend_direction":           trend_direction,
+                "relative_strength_vs_spy":  relative_strength_vs_spy,
+                "stock_return_1yr":          stock_return_1yr,
+                "spy_return_1yr":            spy_return_1yr,
             }
         except Exception as exc:
             logger.warning("[%s] get_technical_indicators failed: %s", self.ticker, exc)

@@ -115,9 +115,12 @@ VALUATION (vs your intrinsic value estimate):
   EV/EBITDA: {metrics.get('ev_ebitda', 'N/A')}
   FCF Yield: {metrics.get('fcf_yield', 'N/A')}
 
-MANAGEMENT & INSIDER ACTIVITY:
+CAPITAL RETURN & MANAGEMENT:
   Insider Transactions: {insider_summary}
   Share Buybacks (last 3yr): {metrics.get('buybacks_3yr', 'N/A')}
+  Shares Outstanding Change (3yr): {metrics.get('shares_change_3yr', 'N/A')} (negative = buyback shrinking float ✓)
+  Dividend Yield: {metrics.get('dividend_yield', 'N/A')}
+  Annual Dividend Rate: {metrics.get('dividend_rate', 'N/A')}
   Dividend History: {metrics.get('dividend_history', 'N/A')}
 {filing_section}
 Would you buy the entire business at today's price? Is there a durable moat? Is management trustworthy?

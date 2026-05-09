@@ -100,6 +100,9 @@ GARP METRICS:
   Revenue Growth (3yr CAGR): {metrics.get('revenue_cagr_3yr', 'N/A')}
   Revenue Growth (5yr CAGR): {metrics.get('revenue_cagr_5yr', 'N/A')}
   Forward EPS Growth: {metrics.get('forward_eps_growth', 'N/A')}
+  Dividend Yield: {metrics.get('dividend_yield', 'N/A')} (slow growers need great yield)
+  Annual Dividend Rate: {metrics.get('dividend_rate', 'N/A')}
+  Shares Outstanding Change (3yr): {metrics.get('shares_change_3yr', 'N/A')} (negative = buyback ✓)
 
 MULTI-YEAR REVENUE TREND (SEC audited):
   {metrics.get('revenue_history_5yr', 'N/A')}

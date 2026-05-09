@@ -78,6 +78,7 @@ class AurumState(TypedDict, total=False):
     earnings_calendar: dict
     analyst_recommendations: dict
     institutional_ownership: dict
+    shares_history: dict
     technical_indicators: dict
     sec_facts: dict
     sec_filings: list[dict]
@@ -347,19 +348,21 @@ async def _node_fundamentals(state: AurumState, on_event: Callable) -> None:
     )
     yf = YFinanceClient(state["ticker"])
 
-    # Run all five yfinance fundamental calls concurrently in thread pool
-    fundamentals, balance_sheet, income_statement, cashflow, inst_ownership = await asyncio.gather(
+    # Run all six yfinance fundamental calls concurrently in thread pool
+    fundamentals, balance_sheet, income_statement, cashflow, inst_ownership, shares_history = await asyncio.gather(
         asyncio.to_thread(yf.get_fundamentals),
         asyncio.to_thread(yf.get_balance_sheet),
         asyncio.to_thread(yf.get_income_statement),
         asyncio.to_thread(yf.get_cashflow),
         asyncio.to_thread(yf.get_institutional_ownership),
+        asyncio.to_thread(yf.get_shares_outstanding_change),
     )
     state["fundamentals"] = fundamentals
     state["balance_sheet"] = balance_sheet
     state["income_statement"] = income_statement
     state["cashflow"] = cashflow
     state["institutional_ownership"] = inst_ownership
+    state["shares_history"] = shares_history
 
     # SEC EDGAR facts — also in thread pool
     try:
@@ -555,11 +558,14 @@ async def _node_persona(
             # Enrich cashflow with fcf_margin (needs revenue from income stmt)
             rev = inc.get("revenue") or inc.get("total_revenue")
             fcf = cf.get("fcf") or cf.get("free_cash_flow")
+            bal = state.get("balance_sheet", {})
             cf_enriched = {
                 **cf,
                 "fcf_margin": (
                     round(fcf / rev, 4) if fcf and rev and rev != 0 else None
                 ),
+                # Propagate working_capital_change from balance sheet so Damodaran can read it
+                "working_capital_change": bal.get("working_capital_change"),
             }
 
             # Compute ROIC-WACC spread now that we have yield curve + fundamentals
@@ -711,6 +717,15 @@ async def _node_persona(
                     inst.get("pct_institutionally_held", "N/A"))
                 fund.setdefault("top_institutional_holders",
                     ", ".join(h["name"] for h in inst.get("top_holders", [])[:3]))
+
+            # ── Shares outstanding trend (buyback / dilution signal) ───────────
+            try:
+                shares_hist = state.get("shares_history", {})
+                sc3 = shares_hist.get("shares_change_3yr")
+                if sc3:
+                    fund.setdefault("shares_change_3yr", sc3)
+            except Exception:
+                pass
 
             fund_enriched = {
                 **fund,

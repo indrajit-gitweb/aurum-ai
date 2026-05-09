@@ -94,6 +94,8 @@ FCF & CAPITAL ALLOCATION:
   FCF Margin: {cash_flow.get('fcf_margin', 'N/A')}
   FCF Yield: {metrics.get('fcf_yield', 'N/A')}
   Share Buybacks: {metrics.get('buybacks_3yr', 'N/A')}
+  Shares Outstanding Change (3yr): {metrics.get('shares_change_3yr', 'N/A')} (negative = sensible capital return ✓)
+  Dividend Yield: {metrics.get('dividend_yield', 'N/A')}
   M&A History: {company.get('ma_history', 'N/A')}
 
 BALANCE SHEET:

@@ -103,7 +103,8 @@ VALUATION METRICS:
   P/E Ratio: {pe} (your limit: ≤ 15 for defensive)
   P/B Ratio: {pb} (your limit: ≤ 1.5, P/E × P/B ≤ 22.5)
   P/E × P/B: {f"{float(pe) * float(pb):.1f}" if pe != "N/A" and pb != "N/A" else "N/A"} (limit: 22.5)
-  Dividend Yield: {metrics.get('dividend_yield', 'N/A')}
+  Dividend Yield: {metrics.get('dividend_yield', 'N/A')} (your criterion: uninterrupted 20yr record)
+  Annual Dividend Rate: {metrics.get('dividend_rate', 'N/A')}
   Earnings Yield: {metrics.get('earnings_yield', 'N/A')}
 
 FINANCIAL STRENGTH:
