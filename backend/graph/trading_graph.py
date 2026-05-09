@@ -158,6 +158,10 @@ class FinalResult:
     bear_case: str
     risk_assessment: str
     key_metrics: dict
+    research_synthesis: str = ""
+    aggressive_risk: str = ""
+    conservative_risk: str = ""
+    neutral_risk: str = ""
 
     def dict(self) -> dict:
         return {
@@ -173,6 +177,10 @@ class FinalResult:
             "bear_case": self.bear_case,
             "risk_assessment": self.risk_assessment,
             "key_metrics": self.key_metrics,
+            "research_synthesis": self.research_synthesis,
+            "aggressive_risk": self.aggressive_risk,
+            "conservative_risk": self.conservative_risk,
+            "neutral_risk": self.neutral_risk,
         }
 
 
@@ -1269,16 +1277,14 @@ async def _node_portfolio_manager(
     base_verdict, base_conf = _verdict_from_signals(signal_objs)
     bull_case = "\n".join(state.get("bull_arguments", ["No bull case available."]))
     bear_case = "\n".join(state.get("bear_arguments", ["No bear case available."]))
-    risk_agg = " | ".join(
-        filter(
-            None,
-            [
-                state.get("aggressive_view", ""),
-                state.get("conservative_view", ""),
-                state.get("neutral_view", ""),
-            ],
-        )
-    )
+    risk_parts = []
+    if state.get("aggressive_view", "").strip():
+        risk_parts.append(f"**Aggressive Risk View**\n{state['aggressive_view']}")
+    if state.get("conservative_view", "").strip():
+        risk_parts.append(f"**Conservative Risk View**\n{state['conservative_view']}")
+    if state.get("neutral_view", "").strip():
+        risk_parts.append(f"**Neutral Risk View**\n{state['neutral_view']}")
+    risk_agg = "\n\n".join(risk_parts)
 
     # Ask the LLM for a refined verdict, target price and summary
     messages = [
@@ -1355,11 +1361,15 @@ async def _node_portfolio_manager(
         target_price=target_price,
         summary=summary,
         persona_signals=signal_objs,
-        bull_case=bull_case[:2000],
-        bear_case=bear_case[:2000],
-        risk_assessment=risk_agg[:1000],
+        bull_case=bull_case[:5000],
+        bear_case=bear_case[:5000],
+        risk_assessment=risk_agg[:8000],
         key_metrics=key_metrics,
     )
+    result.research_synthesis = state.get("research_synthesis", "")[:6000]
+    result.aggressive_risk = state.get("aggressive_view", "")
+    result.conservative_risk = state.get("conservative_view", "")
+    result.neutral_risk = state.get("neutral_view", "")
 
     await on_event(
         {

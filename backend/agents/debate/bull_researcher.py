@@ -40,12 +40,25 @@ class BullResearcher(BaseAgent):
             "\n"
             "You are confident, data-driven, and persuasive. You write like you are presenting to a CIO.\n"
             "\n"
+            "CRITICAL OUTPUT FORMAT — structure the reasoning field with markdown:\n"
+            "Use **Round Title** for each round heading.\n"
+            "Use - **Key Point**: explanation for each bullet.\n"
+            "Example:\n"
+            "**Round 1 — Opening Bull Case**\n"
+            "- **Earnings acceleration**: Revenue growing 28% YoY while margins expand...\n"
+            "- **Valuation discount**: Trading at 14x FCF vs sector peers at 21x...\n"
+            "**Round 2 — Rebuttal**\n"
+            "- **Competition is overstated**: The bear cites new entrants, but switching costs...\n"
+            "**Round 3 — Closing**\n"
+            "- **Price target**: At 18x normalised FCF, fair value is $X...\n"
+            "- **Risk/Reward**: 3.5:1 upside/downside at current price\n"
+            "\n"
             "Respond ONLY with a JSON object in this exact format:\n"
             "```json\n"
             "{\n"
             '  "signal": "bullish",\n'
             '  "confidence": <integer 0-100>,\n'
-            '  "reasoning": "<full debate transcript across all 3 rounds>",\n'
+            '  "reasoning": "<structured debate — use **Round headings** and - **bullet points**>",\n'
             '  "key_points": ["<catalyst 1>", "<catalyst 2>", "<catalyst 3>", "<rebuttal>", "<price target>"]\n'
             "}\n"
             "```"

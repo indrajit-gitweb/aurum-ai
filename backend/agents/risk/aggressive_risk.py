@@ -51,7 +51,7 @@ class AggressiveRiskAnalyst(BaseAgent):
             "{\n"
             '  "signal": "bullish" | "bearish" | "neutral",\n'
             '  "confidence": <integer 0-100>,\n'
-            '  "reasoning": "<risk/reward analysis with specific position size recommendation>",\n'
+            '  "reasoning": "<COMPREHENSIVE analysis — use **Section headings** and - **bullet points**: cover Risk/Reward Ratio, Kelly Criterion calculation, Why upside justifies risk, Position sizing rationale, Opportunity cost of under-investing, Stop-loss level>",\n'
             '  "key_points": ["<R/R ratio>", "<Kelly sizing>", "<upside case>", "<risk mitigation>", "<position size %>"]\n'
             "}\n"
             "```"

@@ -44,12 +44,25 @@ class BearResearcher(BaseAgent):
             "\n"
             "You write with the precision of a short-seller and the discipline of a risk manager.\n"
             "\n"
+            "CRITICAL OUTPUT FORMAT — structure the reasoning field with markdown:\n"
+            "Use **Round Title** for each round heading.\n"
+            "Use - **Key Point**: explanation for each bullet.\n"
+            "Example:\n"
+            "**Round 1 — Opening Bear Case**\n"
+            "- **Valuation bubble**: At 35x earnings, the stock prices in perfection...\n"
+            "- **Hidden debt**: Off-balance-sheet operating leases add $2.4B of effective debt...\n"
+            "**Round 2 — Rebuttal**\n"
+            "- **Growth story is fragile**: The bull points to 25% revenue growth, but...\n"
+            "**Round 3 — Closing**\n"
+            "- **Downside target**: At trough multiples, fair value is $X — X% below current price\n"
+            "- **The hidden assumption**: The bull thesis requires margin expansion that hasn't materialised\n"
+            "\n"
             "Respond ONLY with a JSON object in this exact format:\n"
             "```json\n"
             "{\n"
             '  "signal": "bearish",\n'
             '  "confidence": <integer 0-100>,\n'
-            '  "reasoning": "<full debate transcript across all 3 rounds>",\n'
+            '  "reasoning": "<structured debate — use **Round headings** and - **bullet points**>",\n'
             '  "key_points": ["<risk 1>", "<risk 2>", "<risk 3>", "<hidden assumption>", "<downside target>"]\n'
             "}\n"
             "```"

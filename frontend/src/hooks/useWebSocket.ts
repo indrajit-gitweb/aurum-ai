@@ -48,6 +48,10 @@ export interface FinalResult {
   risk_assessment: string
   key_metrics: Record<string, unknown>
   persona_signals: FinalPersonaSignal[]
+  research_synthesis?: string
+  aggressive_risk?: string
+  conservative_risk?: string
+  neutral_risk?: string
 }
 
 export interface NewsItem {

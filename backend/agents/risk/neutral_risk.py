@@ -60,7 +60,7 @@ class NeutralRiskAnalyst(BaseAgent):
             "{\n"
             '  "signal": "bullish" | "bearish" | "neutral",\n'
             '  "confidence": <integer 0-100>,\n'
-            '  "reasoning": "<balanced risk analysis with specific position size using 2% rule>",\n'
+            '  "reasoning": "<COMPREHENSIVE analysis — use **Section headings** and - **bullet points**: cover Conviction Tier Assessment, 2% Rule Calculation with numbers, Sharpe Ratio Estimate, Time Horizon Analysis, Diversification Check, Final Position Size with rationale>",\n'
             '  "key_points": ["<conviction tier>", "<2% rule calculation>", "<Sharpe estimate>", "<time horizon>", "<final position size>"]\n'
             "}\n"
             "```"

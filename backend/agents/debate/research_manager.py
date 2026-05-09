@@ -47,7 +47,7 @@ class ResearchManager(BaseAgent):
             "{\n"
             '  "signal": "bullish" | "bearish" | "neutral",\n'
             '  "confidence": <integer 0-100>,\n'
-            '  "reasoning": "<structured synthesis: thesis + bull score + bear score + horizon + position size>",\n'
+            '  "reasoning": "<FULL DETAILED REPORT with these **sections** (use **heading** and - **bullets**):\\n**Overall Investment Thesis** — what the market is getting wrong or right\\n**Bull Case Assessment (score X/10)** — strongest bull arguments with specific data\\n**Bear Case Assessment (score X/10)** — strongest bear arguments with specific data\\n**Key Risks** — top 3 risks that could impair the thesis, each with explanation\\n**Persona Consensus** — what the collective signals reveal, where they diverge\\n**Investment Horizon** — why this is short/medium/long term\\n**Recommended Position** — specific size with conviction rationale>",\n'
             '  "key_points": ["<overall thesis>", "<top risk 1>", "<top risk 2>", "<horizon>", "<position size>"]\n'
             "}\n"
             "```"

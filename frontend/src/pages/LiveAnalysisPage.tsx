@@ -359,9 +359,68 @@ function PipelineStepsBar({ steps }: { steps: PipelineStep[] }) {
   )
 }
 
+// ─── Markdown renderer — handles **bold**, - bullets, **Section** headings ──────
+function renderMarkdown(text: string): React.ReactNode[] {
+  if (!text) return []
+  return text.split('\n').map((line, i) => {
+    const t = line.trim()
+    if (!t) return <div key={i} style={{ height: '6px' }} />
+
+    // **Round X — Title** or **Section Title** as its own line → heading
+    if (/^\*\*[^*]+\*\*$/.test(t) || /^\*\*Round\s/i.test(t) || /^\*\*[A-Z]/.test(t)) {
+      const clean = t.replace(/^\*\*|\*\*$/g, '')
+      return (
+        <div key={i} className="mt-4 mb-1.5 pb-1" style={{ borderBottom: '1px solid rgba(201,168,76,0.15)' }}>
+          <span className="font-cinzel text-xs font-bold tracking-wider uppercase" style={{ color: '#C9A84C' }}>
+            {clean}
+          </span>
+        </div>
+      )
+    }
+
+    // Bullet with bold heading: - **Key**: rest
+    if (/^[-•]\s+\*\*/.test(t)) {
+      const rest = t.replace(/^[-•]\s+/, '')
+      const m = rest.match(/^\*\*([^*]+)\*\*:?\s*(.*)/)
+      if (m) {
+        return (
+          <div key={i} className="flex gap-2 py-0.5">
+            <span style={{ color: 'rgba(201,168,76,0.6)', flexShrink: 0, marginTop: '1px' }}>▸</span>
+            <p className="font-raleway text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.65)' }}>
+              <span style={{ color: 'rgba(255,255,255,0.92)', fontWeight: 600 }}>{m[1]}</span>
+              {m[2] ? <span style={{ color: 'rgba(255,255,255,0.5)' }}>: </span> : null}
+              {m[2] || ''}
+            </p>
+          </div>
+        )
+      }
+    }
+
+    // Regular bullet
+    if (/^[-•]\s+/.test(t)) {
+      const rest = t.replace(/^[-•]\s+/, '')
+      return (
+        <div key={i} className="flex gap-2 py-0.5">
+          <span style={{ color: 'rgba(201,168,76,0.6)', flexShrink: 0, marginTop: '1px' }}>▸</span>
+          <p className="font-raleway text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.65)' }}>{rest}</p>
+        </div>
+      )
+    }
+
+    // Plain paragraph
+    return (
+      <p key={i} className="font-raleway text-xs leading-relaxed py-0.5" style={{ color: 'rgba(255,255,255,0.6)' }}>
+        {t}
+      </p>
+    )
+  })
+}
+
 // ─── Debate Section ────────────────────────────────────────────────────────────
 function DebateSection({ bullLines, bearLines }: { bullLines: string[]; bearLines: string[] }) {
   if (bullLines.length === 0 && bearLines.length === 0) return null
+  const bullText = bullLines.join('\n\n')
+  const bearText = bearLines.join('\n\n')
 
   return (
     <motion.div
@@ -376,33 +435,21 @@ function DebateSection({ bullLines, bearLines }: { bullLines: string[]; bearLine
         <span style={{ color: 'rgba(201,168,76,0.5)' }}>—</span>
       </h3>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="p-5" style={{ background: 'rgba(34,197,94,0.04)', border: '1px solid rgba(34,197,94,0.2)' }}>
-          <div className="flex items-center gap-2 mb-4">
-            <TrendingUp size={16} style={{ color: '#22c55e' }} />
-            <span className="font-cinzel text-sm font-semibold" style={{ color: '#22c55e' }}>Bull Case</span>
+        {/* Bull */}
+        <div className="p-5 overflow-y-auto" style={{ background: 'rgba(34,197,94,0.04)', border: '1px solid rgba(34,197,94,0.2)', maxHeight: '480px' }}>
+          <div className="flex items-center gap-2 mb-3 pb-2" style={{ borderBottom: '1px solid rgba(34,197,94,0.15)' }}>
+            <TrendingUp size={14} style={{ color: '#22c55e' }} />
+            <span className="font-cinzel text-xs font-bold tracking-widest uppercase" style={{ color: '#22c55e' }}>Bull Case</span>
           </div>
-          <div className="space-y-2">
-            {bullLines.map((line, i) => (
-              <motion.p key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.1 }}
-                className="font-raleway text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.6)' }}>
-                {line}
-              </motion.p>
-            ))}
-          </div>
+          <div>{renderMarkdown(bullText)}</div>
         </div>
-        <div className="p-5" style={{ background: 'rgba(239,68,68,0.04)', border: '1px solid rgba(239,68,68,0.2)' }}>
-          <div className="flex items-center gap-2 mb-4">
-            <TrendingDown size={16} style={{ color: '#ef4444' }} />
-            <span className="font-cinzel text-sm font-semibold" style={{ color: '#ef4444' }}>Bear Case</span>
+        {/* Bear */}
+        <div className="p-5 overflow-y-auto" style={{ background: 'rgba(239,68,68,0.04)', border: '1px solid rgba(239,68,68,0.2)', maxHeight: '480px' }}>
+          <div className="flex items-center gap-2 mb-3 pb-2" style={{ borderBottom: '1px solid rgba(239,68,68,0.15)' }}>
+            <TrendingDown size={14} style={{ color: '#ef4444' }} />
+            <span className="font-cinzel text-xs font-bold tracking-widest uppercase" style={{ color: '#ef4444' }}>Bear Case</span>
           </div>
-          <div className="space-y-2">
-            {bearLines.map((line, i) => (
-              <motion.p key={i} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.1 }}
-                className="font-raleway text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.6)' }}>
-                {line}
-              </motion.p>
-            ))}
-          </div>
+          <div>{renderMarkdown(bearText)}</div>
         </div>
       </div>
     </motion.div>
@@ -451,7 +498,6 @@ function ConfidenceArc({ confidence }: { confidence: number }) {
 
 // ─── Final Result Banner ───────────────────────────────────────────────────────
 function FinalResultBanner({ result, ticker, onExportPDF }: { result: FinalResult; ticker: string; onExportPDF: () => void }) {
-  // Normalise verdict — backend can send "STRONG BUY", "BUY", "HOLD", "SELL", "STRONG SELL"
   const verdictKey = result.verdict?.toUpperCase() as keyof typeof VERDICT_CONFIG
   const config = VERDICT_CONFIG[verdictKey] || VERDICT_CONFIG['HOLD']
 
@@ -468,25 +514,17 @@ function FinalResultBanner({ result, ticker, onExportPDF }: { result: FinalResul
       }}
     >
       <div className="relative z-10 p-8 md:p-12">
-        {/* Verdict */}
+
+        {/* ── Verdict ───────────────────────────────────────────────── */}
         <div className="text-center mb-10">
           <p className="font-raleway text-xs tracking-[0.4em] uppercase mb-4" style={{ color: 'rgba(255,255,255,0.4)' }}>
             Consensus Verdict — {ticker}
           </p>
-          <motion.div
-            initial={{ scale: 0.5, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ duration: 0.6, type: 'spring', stiffness: 200, delay: 0.3 }}
-          >
-            <h2
-              className="font-cinzel font-bold"
-              style={{
-                fontSize: 'clamp(3rem, 10vw, 7rem)',
-                color: config.color,
-                textShadow: `0 0 60px ${config.glow}, 0 0 120px ${config.glow}`,
-                lineHeight: 1,
-              }}
-            >
+          <motion.div initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+            transition={{ duration: 0.6, type: 'spring', stiffness: 200, delay: 0.3 }}>
+            <h2 className="font-cinzel font-bold"
+              style={{ fontSize: 'clamp(3rem, 10vw, 7rem)', color: config.color,
+                textShadow: `0 0 60px ${config.glow}, 0 0 120px ${config.glow}`, lineHeight: 1 }}>
               {config.label}
             </h2>
           </motion.div>
@@ -500,23 +538,18 @@ function FinalResultBanner({ result, ticker, onExportPDF }: { result: FinalResul
           )}
         </div>
 
-        {/* Confidence + persona signal bubbles */}
+        {/* ── Confidence + persona signal bubbles ───────────────────── */}
         <div className="flex flex-col md:flex-row items-center justify-center gap-10 mb-10">
           <ConfidenceArc confidence={result.confidence} />
-
-          {/* Persona signal grid — backend sends persona_signals as an array */}
           <div className="grid grid-cols-4 sm:grid-cols-5 gap-2 max-w-xs">
             {(result.persona_signals || []).map((sig) => {
               const persona = PERSONAS.find((p) => p.id === sig.agent)
               const sigUp = (sig.signal || '').toUpperCase()
               const sigColor = sigUp === 'BULLISH' ? '#22c55e' : sigUp === 'BEARISH' ? '#ef4444' : '#C0C0C0'
               return (
-                <div
-                  key={sig.agent}
-                  className="flex flex-col items-center p-2"
+                <div key={sig.agent} className="flex flex-col items-center p-2"
                   title={`${persona?.name || sig.agent}: ${sig.signal} (${sig.confidence}%)`}
-                  style={{ background: `${sigColor}10`, border: `1px solid ${sigColor}30` }}
-                >
+                  style={{ background: `${sigColor}10`, border: `1px solid ${sigColor}30` }}>
                   <span className="font-cinzel text-xs font-bold mb-1" style={{ color: sigColor }}>
                     {persona?.initials || sig.agent.slice(0, 2).toUpperCase()}
                   </span>
@@ -529,7 +562,7 @@ function FinalResultBanner({ result, ticker, onExportPDF }: { result: FinalResul
           </div>
         </div>
 
-        {/* Executive summary */}
+        {/* ── Executive summary ─────────────────────────────────────── */}
         {result.summary && (
           <div className="mb-8 p-5 text-center" style={{ background: 'rgba(201,168,76,0.04)', border: '1px solid rgba(201,168,76,0.12)' }}>
             <p className="font-raleway text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.7)' }}>
@@ -538,60 +571,140 @@ function FinalResultBanner({ result, ticker, onExportPDF }: { result: FinalResul
           </div>
         )}
 
-        {/* Bull / Bear */}
+        {/* ── Bull / Bear structured ─────────────────────────────────── */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           <div className="p-6" style={{ background: 'rgba(34,197,94,0.04)', border: '1px solid rgba(34,197,94,0.15)' }}>
-            <p className="font-cinzel text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#22c55e' }}>
+            <p className="font-cinzel text-sm font-semibold mb-4 flex items-center gap-2" style={{ color: '#22c55e' }}>
               <TrendingUp size={14} /> Bull Case
             </p>
-            <p className="font-raleway text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.6)' }}>
-              {result.bull_case}
-            </p>
+            <div className="overflow-y-auto" style={{ maxHeight: '300px' }}>
+              {renderMarkdown(result.bull_case || '')}
+            </div>
           </div>
           <div className="p-6" style={{ background: 'rgba(239,68,68,0.04)', border: '1px solid rgba(239,68,68,0.15)' }}>
-            <p className="font-cinzel text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: '#ef4444' }}>
+            <p className="font-cinzel text-sm font-semibold mb-4 flex items-center gap-2" style={{ color: '#ef4444' }}>
               <TrendingDown size={14} /> Bear Case
             </p>
-            <p className="font-raleway text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.6)' }}>
-              {result.bear_case}
-            </p>
-          </div>
-        </div>
-
-        {/* Risk assessment + CTA */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          {result.risk_assessment && (
-            <div className="flex-1">
-              <span className="font-raleway text-xs tracking-widest uppercase" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                Risk Assessment:{' '}
-              </span>
-              <p className="font-raleway text-xs mt-1 leading-relaxed" style={{ color: 'rgba(255,255,255,0.55)' }}>
-                {result.risk_assessment.slice(0, 300)}
-              </p>
+            <div className="overflow-y-auto" style={{ maxHeight: '300px' }}>
+              {renderMarkdown(result.bear_case || '')}
             </div>
-          )}
-
-          <div className="flex items-center gap-4 shrink-0">
-            <button
-              onClick={onExportPDF}
-              className="flex items-center gap-2 font-raleway text-sm tracking-widest uppercase px-6 py-3 transition-all duration-300 hover:bg-gold/10"
-              style={{ border: '1px solid rgba(201,168,76,0.3)', color: '#C9A84C' }}
-              data-hover
-            >
-              <Download size={15} />
-              Export PDF
-            </button>
-            <Link
-              to="/analyser"
-              className="flex items-center gap-2 font-raleway text-sm tracking-widest uppercase px-6 py-3 text-black transition-all duration-300"
-              style={{ background: 'linear-gradient(135deg, #C9A84C, #FFD700)' }}
-              data-hover
-            >
-              <RefreshCw size={15} />
-              New Analysis
-            </Link>
           </div>
         </div>
+
+        {/* ── Persona Analysis Cards ─────────────────────────────────── */}
+        {(result.persona_signals || []).length > 0 && (
+          <div className="mb-8">
+            <p className="font-cinzel text-sm font-semibold mb-4 tracking-widest uppercase"
+              style={{ color: 'rgba(201,168,76,0.7)', borderBottom: '1px solid rgba(201,168,76,0.1)', paddingBottom: '8px' }}>
+              Persona Analysis
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {(result.persona_signals || []).map((sig) => {
+                const persona = PERSONAS.find((p) => p.id === sig.agent)
+                const sigUp = (sig.signal || '').toUpperCase()
+                const color = sigUp === 'BULLISH' ? '#22c55e' : sigUp === 'BEARISH' ? '#ef4444' : '#C0C0C0'
+                return (
+                  <div key={sig.agent} style={{ border: `1px solid ${color}20`, background: `${color}04` }}>
+                    <div className="flex items-center gap-3 px-4 py-3"
+                      style={{ borderBottom: `1px solid ${color}15` }}>
+                      <div className="w-8 h-8 flex items-center justify-center flex-shrink-0 font-cinzel text-xs font-bold"
+                        style={{ background: `${color}15`, color, border: `1px solid ${color}30` }}>
+                        {persona?.initials || sig.agent.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-cinzel text-xs font-semibold text-white truncate">
+                          {persona?.name || sig.agent}
+                        </p>
+                        <p className="font-raleway text-xs" style={{ color }}>
+                          {sigUp} · {sig.confidence}%
+                        </p>
+                      </div>
+                    </div>
+                    <div className="px-4 py-3">
+                      <p className="font-raleway text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.55)' }}>
+                        {(sig.reasoning || '').slice(0, 220)}{(sig.reasoning || '').length > 220 ? '…' : ''}
+                      </p>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ── Risk Analysis — 3 sections ────────────────────────────── */}
+        {(result.aggressive_risk || result.conservative_risk || result.neutral_risk || result.risk_assessment) && (
+          <div className="mb-8">
+            <p className="font-cinzel text-sm font-semibold mb-4 tracking-widest uppercase"
+              style={{ color: 'rgba(201,168,76,0.7)', borderBottom: '1px solid rgba(201,168,76,0.1)', paddingBottom: '8px' }}>
+              Risk Analysis
+            </p>
+            {/* If separate risk views available */}
+            {(result.aggressive_risk || result.conservative_risk || result.neutral_risk) ? (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {result.aggressive_risk && (
+                  <div className="p-4" style={{ background: 'rgba(239,68,68,0.04)', border: '1px solid rgba(239,68,68,0.15)' }}>
+                    <p className="font-cinzel text-xs font-bold mb-3 tracking-widest uppercase" style={{ color: '#ef4444' }}>
+                      Aggressive
+                    </p>
+                    <div>{renderMarkdown(result.aggressive_risk)}</div>
+                  </div>
+                )}
+                {result.conservative_risk && (
+                  <div className="p-4" style={{ background: 'rgba(34,197,94,0.04)', border: '1px solid rgba(34,197,94,0.15)' }}>
+                    <p className="font-cinzel text-xs font-bold mb-3 tracking-widest uppercase" style={{ color: '#22c55e' }}>
+                      Conservative
+                    </p>
+                    <div>{renderMarkdown(result.conservative_risk)}</div>
+                  </div>
+                )}
+                {result.neutral_risk && (
+                  <div className="p-4" style={{ background: 'rgba(201,168,76,0.04)', border: '1px solid rgba(201,168,76,0.15)' }}>
+                    <p className="font-cinzel text-xs font-bold mb-3 tracking-widest uppercase" style={{ color: '#C9A84C' }}>
+                      Neutral
+                    </p>
+                    <div>{renderMarkdown(result.neutral_risk)}</div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Fallback: render combined risk_assessment as markdown */
+              <div className="p-5" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div>{renderMarkdown(result.risk_assessment || '')}</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Research Manager Report ────────────────────────────────── */}
+        {result.research_synthesis && (
+          <div className="mb-8">
+            <p className="font-cinzel text-sm font-semibold mb-4 tracking-widest uppercase"
+              style={{ color: 'rgba(201,168,76,0.7)', borderBottom: '1px solid rgba(201,168,76,0.1)', paddingBottom: '8px' }}>
+              Research Manager Report
+            </p>
+            <div className="p-5" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <div>{renderMarkdown(result.research_synthesis)}</div>
+            </div>
+          </div>
+        )}
+
+        {/* ── CTA buttons ───────────────────────────────────────────── */}
+        <div className="flex items-center justify-end gap-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+          <button onClick={onExportPDF}
+            className="flex items-center gap-2 font-raleway text-sm tracking-widest uppercase px-6 py-3 transition-all duration-300 hover:bg-gold/10"
+            style={{ border: '1px solid rgba(201,168,76,0.3)', color: '#C9A84C' }} data-hover>
+            <Download size={15} />
+            Export PDF
+          </button>
+          <Link to="/analyser"
+            className="flex items-center gap-2 font-raleway text-sm tracking-widest uppercase px-6 py-3 text-black transition-all duration-300"
+            style={{ background: 'linear-gradient(135deg, #C9A84C, #FFD700)' }} data-hover>
+            <RefreshCw size={15} />
+            New Analysis
+          </Link>
+        </div>
+
       </div>
     </motion.div>
   )
@@ -626,7 +739,7 @@ function DataCard({
   data: Record<string, unknown>
   accent?: string
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(true)
   const entries = Object.entries(data).filter(([, v]) => v !== null && v !== undefined && v !== '')
 
   if (entries.length === 0) return null
@@ -695,7 +808,7 @@ function ListCard({
   count?: number
   children: React.ReactNode
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(true)
   return (
     <div style={{ border: '1px solid rgba(255,255,255,0.07)', background: '#0d0d0d' }}>
       <button

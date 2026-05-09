@@ -65,7 +65,7 @@ class ConservativeRiskAnalyst(BaseAgent):
             "{\n"
             '  "signal": "bullish" | "bearish" | "neutral",\n'
             '  "confidence": <integer 0-100>,\n'
-            '  "reasoning": "<conservative risk analysis with stop-loss levels and position size>",\n'
+            '  "reasoning": "<COMPREHENSIVE analysis — use **Section headings** and - **bullet points**: cover Tail Risk Scenario, Stop-Loss Framework (tight/standard/loose), Position Size Calculation, Red Flags Assessment, Capital Preservation Rationale, Maximum drawdown scenario>",\n'
             '  "key_points": ["<tail risk>", "<stop-loss level>", "<max position size>", "<red flag if any>", "<risk mitigation>"]\n'
             "}\n"
             "```"
