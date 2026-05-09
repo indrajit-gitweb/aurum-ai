@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { CheckCircle, Loader, TrendingUp, TrendingDown, Minus, Download, RefreshCw, AlertCircle, ChevronsDown, Square } from 'lucide-react'
+import { CheckCircle, Loader, TrendingUp, TrendingDown, Minus, Download, RefreshCw, AlertCircle, ChevronsDown, Square, ChevronDown, Database } from 'lucide-react'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { PERSONAS, VERDICT_CONFIG } from '@/lib/constants'
-import type { WSEvent, FinalResult } from '@/hooks/useWebSocket'
+import type { WSEvent, FinalResult, DataSnapshot } from '@/hooks/useWebSocket'
 
 // ─── Agent Status ──────────────────────────────────────────────────────────────
 type AgentStatus = 'pending' | 'running' | 'complete'
@@ -597,10 +597,166 @@ function FinalResultBanner({ result, ticker, onExportPDF }: { result: FinalResul
   )
 }
 
+// ─── Data Sources Panel ────────────────────────────────────────────────────────
+
+/** Format raw values: large numbers → $1.2B, decimals → %, etc. */
+function fmtVal(v: unknown): string {
+  if (v === null || v === undefined) return '—'
+  if (typeof v === 'string') return v
+  if (typeof v === 'boolean') return v ? 'Yes' : 'No'
+  if (typeof v === 'number') {
+    const abs = Math.abs(v)
+    if (abs >= 1e12) return `$${(v / 1e12).toFixed(2)}T`
+    if (abs >= 1e9)  return `$${(v / 1e9).toFixed(2)}B`
+    if (abs >= 1e6)  return `$${(v / 1e6).toFixed(1)}M`
+    if (abs >= 1e3)  return v.toLocaleString()
+    // Looks like a ratio / margin (0–1 range)
+    if (abs < 10 && abs > 0 && abs !== Math.round(abs)) return `${(v * 100).toFixed(1)}%`
+    return v.toFixed(2)
+  }
+  return String(v)
+}
+
+function DataCard({
+  title,
+  data,
+  accent = '#C9A84C',
+}: {
+  title: string
+  data: Record<string, unknown>
+  accent?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const entries = Object.entries(data).filter(([, v]) => v !== null && v !== undefined && v !== '')
+
+  if (entries.length === 0) return null
+
+  return (
+    <div style={{ border: '1px solid rgba(255,255,255,0.07)', background: '#0d0d0d' }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-5 py-3 transition-colors duration-200 hover:bg-white/[0.02]"
+        data-hover
+      >
+        <span className="font-cinzel text-xs font-semibold tracking-widest uppercase" style={{ color: accent }}>
+          {title}
+        </span>
+        <motion.div animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.2 }}>
+          <ChevronDown size={14} style={{ color: 'rgba(255,255,255,0.3)' }} />
+        </motion.div>
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className="overflow-hidden"
+          >
+            <div className="px-5 pb-5 pt-1" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+              {/* Render "History" / long strings as full-width rows */}
+              {entries.map(([k, v]) => {
+                const isLong = typeof v === 'string' && v.length > 60
+                return isLong ? (
+                  <div key={k} className="py-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                    <p className="font-raleway text-xs mb-1" style={{ color: 'rgba(201,168,76,0.6)' }}>{k}</p>
+                    <p className="font-raleway text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.5)', fontFamily: "'Courier New', monospace" }}>
+                      {String(v)}
+                    </p>
+                  </div>
+                ) : (
+                  <div key={k} className="flex items-center justify-between py-1.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                    <span className="font-raleway text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>{k}</span>
+                    <span className="font-raleway text-xs font-semibold ml-4 text-right" style={{ color: 'rgba(255,255,255,0.82)' }}>
+                      {fmtVal(v)}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+function DataSourcesPanel({ snapshot }: { snapshot: DataSnapshot }) {
+  const [panelOpen, setPanelOpen] = useState(false)
+
+  const sections: { title: string; key: keyof DataSnapshot; accent?: string }[] = [
+    { title: 'Company Overview',         key: 'company',       accent: '#C9A84C' },
+    { title: 'Valuation Multiples',      key: 'valuation',     accent: '#FFD700' },
+    { title: 'Profitability & Returns',  key: 'profitability', accent: '#C9A84C' },
+    { title: 'Income Statement',         key: 'financials',    accent: '#C9A84C' },
+    { title: 'Balance Sheet',            key: 'balance_sheet', accent: '#FFD700' },
+    { title: 'Cash Flow',                key: 'cash_flow',     accent: '#C9A84C' },
+    { title: 'Growth & SEC History',     key: 'growth',        accent: '#22c55e' },
+    { title: 'Technical Indicators',     key: 'technical',     accent: '#C9A84C' },
+    { title: 'Market & Share Data',      key: 'market',        accent: '#FFD700' },
+    { title: 'Macro & Rates (FRED)',     key: 'macro',         accent: '#C0C0C0' },
+    { title: 'Analyst Recommendations', key: 'analyst_recs',  accent: '#C9A84C' },
+  ]
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5 }}
+      className="mt-8"
+    >
+      {/* Section toggle header */}
+      <button
+        onClick={() => setPanelOpen((o) => !o)}
+        className="flex items-center justify-between w-full py-4 group"
+        data-hover
+      >
+        <div className="flex items-center gap-3">
+          <Database size={16} style={{ color: 'rgba(201,168,76,0.6)' }} />
+          <h3 className="font-cinzel font-semibold text-white text-base">Data Sources</h3>
+          <span className="font-raleway text-xs px-2 py-0.5" style={{ background: 'rgba(201,168,76,0.08)', border: '1px solid rgba(201,168,76,0.2)', color: 'rgba(201,168,76,0.7)' }}>
+            yfinance · SEC EDGAR · FRED
+          </span>
+        </div>
+        <motion.div animate={{ rotate: panelOpen ? 180 : 0 }} transition={{ duration: 0.25 }}>
+          <ChevronDown size={18} style={{ color: 'rgba(201,168,76,0.5)' }} />
+        </motion.div>
+      </button>
+
+      <div className="h-px mb-4" style={{ background: 'rgba(201,168,76,0.15)' }} />
+
+      <AnimatePresence>
+        {panelOpen && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.3 }}
+            className="overflow-hidden"
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pb-8">
+              {sections.map(({ title, key, accent }) => (
+                <DataCard
+                  key={key}
+                  title={title}
+                  data={(snapshot[key] as Record<string, unknown>) || {}}
+                  accent={accent}
+                />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  )
+}
+
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 export default function LiveAnalysisPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
-  const { events, isConnected, isComplete, finalResult, error: wsError, stop } = useWebSocket(sessionId || null)
+  const { events, isConnected, isComplete, finalResult, dataSnapshot, error: wsError, stop } = useWebSocket(sessionId || null)
 
   // ── Read which personas were selected (stored by AnalyserPage) ────────────
   const [selectedPersonaIds] = useState<Set<string>>(() => {
@@ -925,6 +1081,9 @@ ${finalResult.target_price ? `<p class="conf">Target Price: <strong style="color
             <FinalResultBanner result={finalResult} ticker={ticker} onExportPDF={handleExportPDF} />
           )}
         </AnimatePresence>
+
+        {/* Data Sources — shown once the snapshot arrives (just before final result) */}
+        {dataSnapshot && <DataSourcesPanel snapshot={dataSnapshot} />}
 
         {/* Waiting state */}
         {thoughtLines.length === 0 && !isConnected && !wsError && (

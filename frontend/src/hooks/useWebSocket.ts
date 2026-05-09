@@ -50,11 +50,27 @@ export interface FinalResult {
   persona_signals: FinalPersonaSignal[]
 }
 
+// DataSnapshot — raw fetched data from yfinance / SEC EDGAR / FRED
+export interface DataSnapshot {
+  company:      Record<string, unknown>
+  valuation:    Record<string, unknown>
+  profitability:Record<string, unknown>
+  financials:   Record<string, unknown>
+  balance_sheet:Record<string, unknown>
+  cash_flow:    Record<string, unknown>
+  growth:       Record<string, unknown>
+  technical:    Record<string, unknown>
+  market:       Record<string, unknown>
+  macro:        Record<string, unknown>
+  analyst_recs: Record<string, unknown>
+}
+
 interface UseWebSocketReturn {
   events: WSEvent[]
   isConnected: boolean
   isComplete: boolean
   finalResult: FinalResult | null
+  dataSnapshot: DataSnapshot | null
   error: string | null
   stop: () => void
 }
@@ -64,6 +80,7 @@ export function useWebSocket(sessionId: string | null): UseWebSocketReturn {
   const [isConnected, setIsConnected] = useState(false)
   const [isComplete, setIsComplete] = useState(false)
   const [finalResult, setFinalResult] = useState<FinalResult | null>(null)
+  const [dataSnapshot, setDataSnapshot] = useState<DataSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -108,6 +125,12 @@ export function useWebSocket(sessionId: string | null): UseWebSocketReturn {
           const event: WSEvent = JSON.parse(e.data)
           const stamped = { ...event, timestamp: Date.now() }
           setEvents((prev) => [...prev, stamped])
+
+          // ── Raw data snapshot (emitted just before final_result) ────────────
+          if (event.type === 'data_snapshot') {
+            const { type: _t, timestamp: _ts, ...snap } = stamped as Record<string, unknown>
+            setDataSnapshot(snap as unknown as DataSnapshot)
+          }
 
           // ── Final result: data lives directly on the event, NOT under event.data ──
           if (event.type === 'final_result') {
@@ -166,5 +189,5 @@ export function useWebSocket(sessionId: string | null): UseWebSocketReturn {
     }
   }, [sessionId]) // only re-run when sessionId changes, not on connect reference change
 
-  return { events, isConnected, isComplete, finalResult, error, stop }
+  return { events, isConnected, isComplete, finalResult, dataSnapshot, error, stop }
 }

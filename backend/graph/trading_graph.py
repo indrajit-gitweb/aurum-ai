@@ -1367,4 +1367,147 @@ class TradingGraph:
 
         # ── 7. Portfolio manager — final verdict ──────────────────────────────
         result = await _node_portfolio_manager(state, llm_router, on_event)
+
+        # ── 8. Emit raw data snapshot for the frontend "Data Sources" panel ──
+        # By this point state["fundamentals"] has been enriched in-place by all
+        # persona runs (setdefault calls), so it carries CAGRs, PEG, etc.
+        try:
+            _fund = state.get("fundamentals", {})
+            _tech = state.get("technical_indicators", {})
+            _bal  = state.get("balance_sheet", {})
+            _inc  = state.get("income_statement", {})
+            _cf   = state.get("cashflow", {})
+            _inst = state.get("institutional_ownership", {})
+            _sh   = state.get("shares_history", {})
+            _yc   = state.get("yield_curve", {})
+            _ar   = state.get("analyst_recommendations", {})
+
+            def _clean(d: dict) -> dict:
+                """Strip None values so the frontend doesn't render empty rows."""
+                return {k: v for k, v in d.items() if v is not None and v != ""}
+
+            await on_event({
+                "type": "data_snapshot",
+                "company": _clean({
+                    "Name":        _fund.get("name"),
+                    "Sector":      _fund.get("sector"),
+                    "Industry":    _fund.get("industry"),
+                    "Country":     _fund.get("country"),
+                    "Currency":    _fund.get("currency"),
+                    "Employees":   _fund.get("employees"),
+                    "Description": (_fund.get("description") or "")[:400] or None,
+                }),
+                "valuation": _clean({
+                    "P/E (TTM)":       _fund.get("pe_ratio"),
+                    "Forward P/E":     _fund.get("forward_pe"),
+                    "P/B":             _fund.get("pb_ratio"),
+                    "P/S":             _fund.get("ps_ratio"),
+                    "EV/EBITDA":       _fund.get("ev_ebitda"),
+                    "PEG Ratio":       _fund.get("peg_ratio"),
+                    "FCF Yield":       f"{_fund['fcf_yield']:.1f}%" if _fund.get("fcf_yield") else None,
+                    "Earnings Yield":  _fund.get("earnings_yield"),
+                    "Market Cap":      _fund.get("market_cap"),
+                    "Enterprise Value":_fund.get("enterprise_value"),
+                }),
+                "profitability": _clean({
+                    "Gross Margin":      _fund.get("gross_margin") or _inc.get("gross_margin"),
+                    "Operating Margin":  _fund.get("operating_margin") or _inc.get("operating_margin"),
+                    "Net Margin":        _fund.get("net_margin") or _inc.get("net_margin"),
+                    "ROE":               _fund.get("roe"),
+                    "ROA":               _fund.get("roa"),
+                    "ROIC":              _fund.get("roic"),
+                    "ROIC−WACC Spread":  _fund.get("roic_wacc_spread"),
+                }),
+                "financials": _clean({
+                    "Revenue":           _inc.get("revenue") or _fund.get("revenue"),
+                    "Gross Profit":      _inc.get("gross_profit"),
+                    "Operating Income":  _inc.get("operating_income"),
+                    "Net Income":        _inc.get("net_income") or _fund.get("net_income"),
+                    "EBITDA":            _fund.get("ebitda"),
+                    "EPS (TTM)":         _fund.get("eps"),
+                    "Forward EPS":       _fund.get("forward_eps"),
+                    "R&D % Revenue":     _inc.get("rd_pct_revenue"),
+                    "Revenue Growth YoY":_fund.get("revenue_growth_yoy"),
+                }),
+                "balance_sheet": _clean({
+                    "Total Assets":         _bal.get("total_assets"),
+                    "Total Liabilities":    _bal.get("total_liabilities"),
+                    "Stockholders Equity":  _bal.get("stockholders_equity"),
+                    "Cash & Equivalents":   _bal.get("cash") or _bal.get("cash_and_equivalents"),
+                    "Long-Term Debt":       _bal.get("long_term_debt"),
+                    "Current Ratio":        _bal.get("current_ratio"),
+                    "Debt / Equity":        _bal.get("debt_equity"),
+                    "Net Debt / EBITDA":    _fund.get("net_debt_ebitda"),
+                    "Working Capital Δ":    _bal.get("working_capital_change"),
+                }),
+                "cash_flow": _clean({
+                    "Free Cash Flow":    _cf.get("fcf"),
+                    "Operating CF":      _cf.get("operating_cf"),
+                    "CapEx":             _cf.get("capex"),
+                    "FCF Margin":        _cf.get("fcf_margin"),
+                    "Cash Burn (net)":   _fund.get("cash_burn"),
+                    "CapEx / Revenue":   _fund.get("capex_to_revenue"),
+                }),
+                "growth": _clean({
+                    "Revenue CAGR 3yr":    _fund.get("revenue_cagr_3yr"),
+                    "Revenue CAGR 5yr":    _fund.get("revenue_cagr_5yr"),
+                    "EPS CAGR 3yr":        _fund.get("eps_cagr_3yr"),
+                    "EPS CAGR 5yr":        _fund.get("eps_cagr_5yr"),
+                    "Fwd EPS Growth":      _fund.get("forward_eps_growth"),
+                    "Net Income Growth YoY": _fund.get("net_income_growth_yoy"),
+                    "Shares Change 3yr":   _fund.get("shares_change_3yr") or _sh.get("shares_change_3yr"),
+                    "Revenue History":     _fund.get("revenue_history_5yr"),
+                    "Net Income History":  _fund.get("net_income_history_5yr"),
+                }),
+                "technical": _clean({
+                    "Current Price":         _tech.get("current_price"),
+                    "52-Week High":          _fund.get("52w_high"),
+                    "52-Week Low":           _fund.get("52w_low"),
+                    "% from 52W High":       _tech.get("pct_from_52w_high"),
+                    "RSI (14)":              _tech.get("rsi"),
+                    "MACD":                  _tech.get("macd"),
+                    "Signal Line":           _tech.get("signal_line"),
+                    "SMA 50":                _tech.get("sma_50"),
+                    "SMA 200":               _tech.get("sma_200"),
+                    "% Above SMA50":         _tech.get("pct_above_sma50"),
+                    "% Above SMA200":        _tech.get("pct_above_sma200"),
+                    "Trend":                 _tech.get("trend_direction"),
+                    "SPY Relative Strength": _tech.get("relative_strength_vs_spy"),
+                    "Beta":                  _fund.get("beta"),
+                }),
+                "market": _clean({
+                    "Shares Outstanding":      _fund.get("shares_outstanding"),
+                    "Avg Volume (30d)":        _fund.get("avg_volume"),
+                    "Dividend Yield":          _fund.get("dividend_yield"),
+                    "Annual Dividend":         _fund.get("dividend_rate"),
+                    "Short Interest %":        _fund.get("short_interest_pct"),
+                    "Short Ratio":             _fund.get("short_ratio"),
+                    "Institutional Ownership": _fund.get("institutional_ownership"),
+                    "Revenue / Employee":      _fund.get("revenue_per_employee"),
+                }),
+                "macro": _clean({
+                    "2Y Treasury":  _yc.get("2y"),
+                    "5Y Treasury":  _yc.get("5y"),
+                    "10Y Treasury": _yc.get("10y"),
+                    "30Y Treasury": _yc.get("30y"),
+                    "Yield Spread (10Y−2Y)": (
+                        round(float(_yc["10y"]) - float(_yc["2y"]), 2)
+                        if _yc.get("10y") and _yc.get("2y") else None
+                    ),
+                    "Macro Summary": (state.get("macro_summary") or "")[:600] or None,
+                }),
+                "analyst_recs": _clean({
+                    "Consensus":    _ar.get("consensus"),
+                    "Strong Buy":   _ar.get("strong_buy"),
+                    "Buy":          _ar.get("buy"),
+                    "Hold":         _ar.get("hold"),
+                    "Sell":         _ar.get("sell"),
+                    "Strong Sell":  _ar.get("strong_sell"),
+                    "Total Analysts": _ar.get("total_analysts"),
+                    "Price Target": _ar.get("mean_target"),
+                }),
+            })
+        except Exception as _snap_exc:
+            logger.warning("data_snapshot emit failed: %s", _snap_exc)
+
         return result
