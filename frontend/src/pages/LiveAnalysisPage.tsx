@@ -736,7 +736,7 @@ function DataSourcesPanel({ snapshot }: { snapshot: DataSnapshot }) {
             transition={{ duration: 0.3 }}
             className="overflow-hidden"
           >
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pb-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pb-8 items-start">
               {sections.map(({ title, key, accent }) => (
                 <DataCard
                   key={key}
