@@ -45,7 +45,7 @@ class GroqClient:
     """
 
     DEFAULT_MODEL = "llama-3.3-70b-versatile"
-    DEEP_MODEL = "deepseek-r1-distill-llama-70b"
+    DEEP_MODEL = "llama-3.3-70b-versatile"
 
     def __init__(self, api_key: str) -> None:
         if not api_key:
