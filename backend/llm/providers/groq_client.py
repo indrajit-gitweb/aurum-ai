@@ -2,6 +2,8 @@
 Groq LLM client for AURUM AI.
 
 Wraps langchain-groq with a simple invoke interface and rate-limit error handling.
+invoke_deep() cycles through a ranked list of free-tier models so that if one
+model is rate-limited or deprecated the next is tried automatically.
 """
 
 import logging
@@ -45,7 +47,16 @@ class GroqClient:
     """
 
     DEFAULT_MODEL = "llama-3.3-70b-versatile"
-    DEEP_MODEL = "llama-3.3-70b-versatile"
+
+    # Ordered list of free-tier deep models.
+    # invoke_deep() tries them in order — if one is rate-limited or unavailable
+    # the next is tried automatically before giving up on Groq entirely.
+    DEEP_MODELS: list[str] = [
+        "llama-3.3-70b-versatile",       # 14,400 req/day — primary
+        "llama-3.1-70b-versatile",        # strong fallback
+        "mixtral-8x7b-32768",             # fast, good reasoning
+        "gemma2-9b-it",                   # lightweight last resort
+    ]
 
     def __init__(self, api_key: str) -> None:
         if not api_key:
@@ -74,8 +85,8 @@ class GroqClient:
             The assistant's response as a plain string.
 
         Raises:
-            RateLimitError: If the API returns a 429 error.
-            Exception: For other API errors.
+            RateLimitError: If the API returns a 429 / rate-limit response.
+            ProviderError:  For all other API errors.
         """
         lc_messages = _to_langchain_messages(messages)
         client = self._build_client(model)
@@ -88,18 +99,41 @@ class GroqClient:
                 logger.warning("Groq rate limit hit for model %s: %s", model, exc)
                 raise RateLimitError(f"Groq rate limit exceeded: {exc}") from exc
             logger.error("Groq invocation error (model=%s): %s", model, exc)
-            raise
+            raise ProviderError(f"Groq error (model={model}): {exc}") from exc
 
     def invoke_deep(self, messages: list) -> str:
-        """Invoke the deep-reasoning Groq model (DeepSeek-R1 distil).
+        """Invoke the best available Groq model for deep reasoning tasks.
 
-        Args:
-            messages: List of message dicts or LangChain messages.
-
-        Returns:
-            The assistant's response as a plain string.
+        Tries DEEP_MODELS in order.  Both rate-limit (429) and provider errors
+        (model deprecated / unavailable) cause the next model to be tried.
+        Only raises an error when the entire model list is exhausted.
 
         Raises:
-            RateLimitError: If the API returns a 429 error.
+            RateLimitError: Only if ALL models are rate-limited.
+            ProviderError:  If all models return non-rate-limit errors.
         """
-        return self.invoke(messages, model=self.DEEP_MODEL)
+        last_exc: Optional[Exception] = None
+        all_rate_limited = True
+
+        for model in self.DEEP_MODELS:
+            try:
+                result = self.invoke(messages, model=model)
+                logger.debug("Groq deep: success via '%s'.", model)
+                return result
+            except RateLimitError as exc:
+                logger.warning("Groq deep: '%s' rate-limited, trying next model.", model)
+                last_exc = exc
+                continue
+            except ProviderError as exc:
+                all_rate_limited = False
+                logger.warning("Groq deep: '%s' unavailable (%s), trying next.", model, exc)
+                last_exc = exc
+                continue
+
+        if all_rate_limited:
+            raise RateLimitError(
+                f"Groq: all {len(self.DEEP_MODELS)} deep models rate-limited. Last: {last_exc}"
+            )
+        raise ProviderError(
+            f"Groq: all {len(self.DEEP_MODELS)} deep models exhausted. Last: {last_exc}"
+        )

@@ -1,23 +1,32 @@
 """
 AURUM AI — SambaNova inference client.
 SambaNova offers the Llama 3.1 405B model — the largest free model available
-anywhere. Perfect for deep-reasoning tasks: debate, risk analysis, and the
-Portfolio Manager's final BUY/HOLD/SELL verdict.
+anywhere. invoke_deep() cycles through a ranked list of models so that if one
+is rate-limited or unavailable the next is tried automatically.
 """
 
 import logging
+from typing import Optional
+
 from openai import OpenAI
 from llm.providers.base_provider import RateLimitError, ProviderError
 
 logger = logging.getLogger(__name__)
 
-SAMBANOVA_DEEP_MODEL  = "Meta-Llama-3.1-405B-Instruct"
 SAMBANOVA_QUICK_MODEL = "Meta-Llama-3.3-70B-Instruct"
-SAMBANOVA_REASON_MODEL = "DeepSeek-R1"          # chain-of-thought reasoning
 
 
 class SambanovaClient:
     """OpenAI-compatible client for SambaNova Cloud inference."""
+
+    # Ordered list of free-tier deep models.
+    # invoke_deep() tries them in order — if one is rate-limited or unavailable
+    # the next is tried automatically before giving up on SambaNova entirely.
+    DEEP_MODELS: list[str] = [
+        "Meta-Llama-3.1-405B-Instruct",   # largest free model anywhere — primary
+        "Meta-Llama-3.3-70B-Instruct",    # same as quick model — strong fallback
+        "Meta-Llama-3.1-70B-Instruct",    # older 70B — last resort
+    ]
 
     def __init__(self, api_key: str):
         self.api_key = api_key
@@ -27,7 +36,12 @@ class SambanovaClient:
         )
 
     def invoke(self, messages: list[dict], model: str = SAMBANOVA_QUICK_MODEL) -> str:
-        """Run a chat completion and return the response text."""
+        """Run a chat completion and return the response text.
+
+        Raises:
+            RateLimitError: If the API returns a 429 / rate-limit response.
+            ProviderError:  For all other API errors.
+        """
         try:
             response = self.client.chat.completions.create(
                 model=model,
@@ -40,8 +54,41 @@ class SambanovaClient:
             err = str(exc).lower()
             if "429" in err or "rate limit" in err or "rate_limit" in err:
                 raise RateLimitError(f"SambaNova rate limit: {exc}") from exc
-            raise ProviderError(f"SambaNova error: {exc}") from exc
+            raise ProviderError(f"SambaNova error (model={model}): {exc}") from exc
 
     def invoke_deep(self, messages: list[dict]) -> str:
-        """Use the 405B model for the most complex reasoning tasks."""
-        return self.invoke(messages, model=SAMBANOVA_DEEP_MODEL)
+        """Invoke the best available SambaNova model for deep reasoning tasks.
+
+        Tries DEEP_MODELS in order.  Both rate-limit (429) and provider errors
+        (model deprecated / unavailable) cause the next model to be tried.
+        Only raises an error when the entire model list is exhausted.
+
+        Raises:
+            RateLimitError: Only if ALL models are rate-limited.
+            ProviderError:  If all models return non-rate-limit errors.
+        """
+        last_exc: Optional[Exception] = None
+        all_rate_limited = True
+
+        for model in self.DEEP_MODELS:
+            try:
+                result = self.invoke(messages, model=model)
+                logger.debug("SambaNova deep: success via '%s'.", model)
+                return result
+            except RateLimitError as exc:
+                logger.warning("SambaNova deep: '%s' rate-limited, trying next model.", model)
+                last_exc = exc
+                continue
+            except ProviderError as exc:
+                all_rate_limited = False
+                logger.warning("SambaNova deep: '%s' unavailable (%s), trying next.", model, exc)
+                last_exc = exc
+                continue
+
+        if all_rate_limited:
+            raise RateLimitError(
+                f"SambaNova: all {len(self.DEEP_MODELS)} deep models rate-limited. Last: {last_exc}"
+            )
+        raise ProviderError(
+            f"SambaNova: all {len(self.DEEP_MODELS)} deep models exhausted. Last: {last_exc}"
+        )

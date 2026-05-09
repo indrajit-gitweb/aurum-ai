@@ -2,6 +2,8 @@
 Gemini LLM client for AURUM AI.
 
 Wraps langchain-google-genai with a simple invoke interface and rate-limit error handling.
+invoke_deep() cycles through a ranked list of free-tier models so that if one
+model is rate-limited or deprecated the next is tried automatically.
 """
 
 import logging
@@ -10,7 +12,7 @@ from typing import Optional
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from llm.providers.base_provider import RateLimitError  # BUG-09 fix: use shared class
+from llm.providers.base_provider import RateLimitError, ProviderError
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +43,16 @@ class GeminiClient:
     """
 
     DEFAULT_MODEL = "gemini-2.0-flash"
-    # 1M-context model, useful for long filing documents
-    DEEP_MODEL = "gemini-1.5-flash"
+
+    # Ordered list of free-tier deep models.
+    # invoke_deep() tries them in order — if one is rate-limited or unavailable
+    # the next is tried automatically before giving up on Gemini entirely.
+    DEEP_MODELS: list[str] = [
+        "gemini-2.0-flash",          # fast, capable, generous free tier — primary
+        "gemini-1.5-flash",          # 1M context window — great for long filings
+        "gemini-2.0-flash-lite",     # lightweight fallback
+        "gemini-1.5-flash-8b",       # smallest / last resort
+    ]
 
     def __init__(self, api_key: str) -> None:
         if not api_key:
@@ -72,8 +82,8 @@ class GeminiClient:
             The assistant's response as a plain string.
 
         Raises:
-            RateLimitError: If the API returns a 429 error.
-            Exception: For other API errors.
+            RateLimitError: If the API returns a 429 / quota-exceeded response.
+            ProviderError:  For all other API errors.
         """
         lc_messages = _to_langchain_messages(messages)
         client = self._build_client(model)
@@ -86,20 +96,41 @@ class GeminiClient:
                 logger.warning("Gemini rate limit hit for model %s: %s", model, exc)
                 raise RateLimitError(f"Gemini rate limit exceeded: {exc}") from exc
             logger.error("Gemini invocation error (model=%s): %s", model, exc)
-            raise
+            raise ProviderError(f"Gemini error (model={model}): {exc}") from exc
 
     def invoke_deep(self, messages: list) -> str:
-        """Invoke the deep / long-context Gemini model (1.5-flash, 1M tokens).
+        """Invoke the best available Gemini model for deep reasoning tasks.
 
-        Ideal for analysing lengthy SEC filings or earnings call transcripts.
-
-        Args:
-            messages: List of message dicts or LangChain messages.
-
-        Returns:
-            The assistant's response as a plain string.
+        Tries DEEP_MODELS in order.  Both rate-limit (429/quota) and provider
+        errors (model deprecated / unavailable) cause the next model to be tried.
+        Only raises an error when the entire model list is exhausted.
 
         Raises:
-            RateLimitError: If the API returns a 429 error.
+            RateLimitError: Only if ALL models are rate-limited / quota-exceeded.
+            ProviderError:  If all models return non-rate-limit errors.
         """
-        return self.invoke(messages, model=self.DEEP_MODEL)
+        last_exc: Optional[Exception] = None
+        all_rate_limited = True
+
+        for model in self.DEEP_MODELS:
+            try:
+                result = self.invoke(messages, model=model)
+                logger.debug("Gemini deep: success via '%s'.", model)
+                return result
+            except RateLimitError as exc:
+                logger.warning("Gemini deep: '%s' rate-limited, trying next model.", model)
+                last_exc = exc
+                continue
+            except ProviderError as exc:
+                all_rate_limited = False
+                logger.warning("Gemini deep: '%s' unavailable (%s), trying next.", model, exc)
+                last_exc = exc
+                continue
+
+        if all_rate_limited:
+            raise RateLimitError(
+                f"Gemini: all {len(self.DEEP_MODELS)} deep models rate-limited. Last: {last_exc}"
+            )
+        raise ProviderError(
+            f"Gemini: all {len(self.DEEP_MODELS)} deep models exhausted. Last: {last_exc}"
+        )
