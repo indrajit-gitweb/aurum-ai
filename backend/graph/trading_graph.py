@@ -1479,8 +1479,33 @@ class TradingGraph:
             _ar   = state.get("analyst_recommendations", {})
 
             def _clean(d: dict) -> dict:
-                """Strip None values so the frontend doesn't render empty rows."""
-                return {k: v for k, v in d.items() if v is not None and v != ""}
+                """Strip None/NaN values so the frontend doesn't render empty rows."""
+                out = {}
+                for k, v in d.items():
+                    if v is None or v == "":
+                        continue
+                    if isinstance(v, float) and (_math.isnan(v) or _math.isinf(v)):
+                        continue
+                    out[k] = v
+                return out
+
+            import math as _math
+
+            def _safe(v: object) -> object:
+                """Replace NaN/Inf floats with None so JSON.parse never chokes.
+
+                Python's json.dumps emits the bare token ``NaN`` for float('nan')
+                which is not valid JSON — browsers raise SyntaxError on it.
+                The WebSocket onmessage handler silently swallows parse errors,
+                so the entire data_snapshot event is dropped without any warning.
+                """
+                if isinstance(v, float) and (_math.isnan(v) or _math.isinf(v)):
+                    return None
+                return v
+
+            def _sanitize_list(rows: list[dict]) -> list[dict]:
+                """Run _safe() over every value in every row dict."""
+                return [{k: _safe(val) for k, val in row.items()} for row in rows]
 
             await on_event({
                 "type": "data_snapshot",
@@ -1622,7 +1647,7 @@ class TradingGraph:
                     for n in state.get("news", [])[:10]
                     if n.get("title")
                 ],
-                "insider_transactions": [
+                "insider_transactions": _sanitize_list([
                     {
                         "name":   t.get("name", ""),
                         "role":   t.get("role", ""),
@@ -1632,7 +1657,7 @@ class TradingGraph:
                         "value":  t.get("value") or t.get("total_value"),
                     }
                     for t in state.get("insider_transactions", [])[:8]
-                ],
+                ]),
                 "top_holders": _inst.get("top_holders", []),
                 # ── SEC Filings Log ───────────────────────────────────────────
                 "sec_filings": [
@@ -1650,8 +1675,10 @@ class TradingGraph:
                     if f.get("filed_date")
                 ],
                 # ── Peer Comparison ───────────────────────────────────────────
-                # Main ticker row first (is_subject=True), then sector peers
-                "peer_comparison": [
+                # Main ticker row first (is_subject=True), then sector peers.
+                # _sanitize_list() converts any NaN/Inf floats → None so that
+                # the browser's JSON.parse() never throws a SyntaxError.
+                "peer_comparison": _sanitize_list([
                     {
                         "ticker":         state["ticker"],
                         "name":           _fund.get("name") or state["ticker"],
@@ -1665,7 +1692,7 @@ class TradingGraph:
                         "is_subject":     True,
                     },
                     *state.get("peer_comparison", []),
-                ],
+                ]),
             })
         except Exception as _snap_exc:
             logger.warning("data_snapshot emit failed: %s", _snap_exc)
