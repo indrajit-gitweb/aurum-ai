@@ -82,8 +82,10 @@ class AurumState(TypedDict, total=False):
     shares_history: dict
     technical_indicators: dict
     sec_facts: dict
-    sec_filings: list[dict]
+    sec_filings: list[dict]     # 10-K filings (metadata + accession number)
+    sec_filings_q: list[dict]   # 10-Q filings (metadata + accession number)
     filing_text_excerpt: str    # first ~3 000 chars of the most recent 10-K
+    peer_comparison: list[dict] # key ratios for 2–3 sector peers
     macro_summary: str
     yield_curve: dict
 
@@ -391,6 +393,17 @@ async def _node_fundamentals(state: AurumState, on_event: Callable) -> None:
         state["sec_facts"] = sec_facts
         state["sec_filings"] = sec_filings
 
+        # Also grab the 4 most recent quarterly (10-Q) filings for the log
+        await asyncio.sleep(0.4)
+        try:
+            sec_filings_q = await asyncio.to_thread(
+                functools.partial(sec.get_recent_filings, form_type="10-Q", limit=4)
+            )
+            state["sec_filings_q"] = sec_filings_q
+        except Exception as exc_q:
+            logger.warning("10-Q filings fetch failed: %s", exc_q)
+            state["sec_filings_q"] = []
+
         # Fetch the first ~3 000 chars of the most recent 10-K (Risk Factors / MD&A)
         # Only for the four deep-value personas — a targeted extra HTTP call.
         filing_text_excerpt = ""
@@ -412,7 +425,20 @@ async def _node_fundamentals(state: AurumState, on_event: Callable) -> None:
         logger.warning("SEC EDGAR fetch failed: %s", exc)
         state["sec_facts"] = {}
         state["sec_filings"] = []
+        state["sec_filings_q"] = []
         state["filing_text_excerpt"] = ""
+
+    # Peer comparison — 2–3 sector peers with key valuation ratios.
+    # Runs after fundamentals are stored so we have sector/industry available.
+    try:
+        industry = fundamentals.get("industry", "")
+        sector   = fundamentals.get("sector", "")
+        state["peer_comparison"] = await asyncio.to_thread(
+            functools.partial(yf.get_peer_comparison, industry=industry, sector=sector)
+        )
+    except Exception as exc_p:
+        logger.warning("Peer comparison fetch failed: %s", exc_p)
+        state["peer_comparison"] = []
 
     await on_event(
         {
@@ -1538,6 +1564,38 @@ class TradingGraph:
                     for t in state.get("insider_transactions", [])[:8]
                 ],
                 "top_holders": _inst.get("top_holders", []),
+                # ── SEC Filings Log ───────────────────────────────────────────
+                "sec_filings": [
+                    {
+                        "form":        f["form"],
+                        "filed_date":  f["filed_date"],
+                        "report_date": f["report_date"],
+                        # Direct link to the EDGAR filing index page
+                        "url": (
+                            f"https://www.sec.gov/Archives/edgar/data/{f['cik']}"
+                            f"/{f['accession_number'].replace('-', '')}/"
+                        ) if f.get("cik") and f.get("accession_number") else "",
+                    }
+                    for f in (state.get("sec_filings", []) + state.get("sec_filings_q", []))
+                    if f.get("filed_date")
+                ],
+                # ── Peer Comparison ───────────────────────────────────────────
+                # Main ticker row first (is_subject=True), then sector peers
+                "peer_comparison": [
+                    {
+                        "ticker":         state["ticker"],
+                        "name":           _fund.get("name") or state["ticker"],
+                        "price":          _tech.get("current_price"),
+                        "pe_ratio":       _fund.get("pe_ratio"),
+                        "pb_ratio":       _fund.get("pb_ratio"),
+                        "ps_ratio":       _fund.get("ps_ratio"),
+                        "profit_margin":  _fund.get("net_margin") or _inc.get("net_margin"),
+                        "revenue_growth": _fund.get("revenue_growth_yoy"),
+                        "market_cap":     _fund.get("market_cap"),
+                        "is_subject":     True,
+                    },
+                    *state.get("peer_comparison", []),
+                ],
             })
         except Exception as _snap_exc:
             logger.warning("data_snapshot emit failed: %s", _snap_exc)

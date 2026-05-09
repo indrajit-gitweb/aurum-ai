@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { CheckCircle, Loader, TrendingUp, TrendingDown, Minus, Download, RefreshCw, AlertCircle, ChevronsDown, Square, ChevronDown, Database } from 'lucide-react'
+import { CheckCircle, Loader, TrendingUp, TrendingDown, Minus, Download, RefreshCw, AlertCircle, ChevronsDown, Square, ChevronDown, Database, ExternalLink } from 'lucide-react'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { PERSONAS, VERDICT_CONFIG } from '@/lib/constants'
-import type { WSEvent, FinalResult, DataSnapshot, NewsItem, InsiderTx, TopHolder } from '@/hooks/useWebSocket'
+import type { WSEvent, FinalResult, DataSnapshot, NewsItem, InsiderTx, TopHolder, SecFiling, PeerData } from '@/hooks/useWebSocket'
 
 // ─── Agent Status ──────────────────────────────────────────────────────────────
 type AgentStatus = 'pending' | 'running' | 'complete'
@@ -849,6 +849,165 @@ function TopHoldersCard({ holders }: { holders: TopHolder[] }) {
   )
 }
 
+// ─── SEC Filings Log Card ──────────────────────────────────────────────────────
+function SecFilingsCard({ filings }: { filings: SecFiling[] }) {
+  if (!filings || filings.length === 0) return null
+  return (
+    <ListCard title="SEC Filings Log" count={filings.length}>
+      <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+        {filings.map((f, i) => {
+          const isAnnual = f.form === '10-K'
+          return (
+            <div key={i} className="px-5 py-3 flex items-center gap-3 flex-wrap">
+              {/* Form badge */}
+              <span
+                className="font-cinzel text-xs font-bold px-2 py-0.5 shrink-0"
+                style={{
+                  background:  isAnnual ? 'rgba(201,168,76,0.12)' : 'rgba(255,255,255,0.05)',
+                  border:      isAnnual ? '1px solid rgba(201,168,76,0.35)' : '1px solid rgba(255,255,255,0.1)',
+                  color:       isAnnual ? '#C9A84C' : 'rgba(255,255,255,0.5)',
+                }}
+              >
+                {f.form}
+              </span>
+              {/* Dates */}
+              <div className="flex-1 min-w-0">
+                <p className="font-raleway text-xs" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                  Filed:{' '}
+                  <span className="font-semibold" style={{ color: 'rgba(255,255,255,0.9)' }}>
+                    {f.filed_date || '—'}
+                  </span>
+                </p>
+                {f.report_date && (
+                  <p className="font-raleway text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                    Period ending: {f.report_date}
+                  </p>
+                )}
+              </div>
+              {/* EDGAR link */}
+              {f.url && (
+                <a
+                  href={f.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-raleway text-xs shrink-0 flex items-center gap-1 transition-all duration-200 hover:opacity-70"
+                  style={{ color: '#C9A84C' }}
+                >
+                  <ExternalLink size={11} />
+                  EDGAR
+                </a>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </ListCard>
+  )
+}
+
+// ─── Peer Comparison Card ──────────────────────────────────────────────────────
+function PeerComparisonCard({ peers }: { peers: PeerData[] }) {
+  if (!peers || peers.length === 0) return null
+
+  const fmtNum  = (v: number | null | undefined, dp = 1): string =>
+    v === null || v === undefined ? '—' : v.toFixed(dp)
+  const fmtPct  = (v: number | null | undefined): string =>
+    v === null || v === undefined ? '—' : `${(v * 100).toFixed(1)}%`
+  const fmtCap  = (v: number | null | undefined): string => {
+    if (!v) return '—'
+    if (v >= 1e12) return `$${(v / 1e12).toFixed(1)}T`
+    if (v >= 1e9)  return `$${(v / 1e9).toFixed(1)}B`
+    if (v >= 1e6)  return `$${(v / 1e6).toFixed(0)}M`
+    return `$${v.toFixed(0)}`
+  }
+
+  const peerCount = peers.filter((p) => !p.is_subject).length
+
+  return (
+    <ListCard title="Peer Comparison" count={peerCount}>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[560px]">
+          <thead>
+            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              {['Company', 'Price', 'P/E', 'P/B', 'Net Margin', 'Rev Growth', 'Mkt Cap'].map((h) => (
+                <th
+                  key={h}
+                  className="font-raleway text-xs px-4 py-2 text-left"
+                  style={{ color: 'rgba(201,168,76,0.6)', whiteSpace: 'nowrap' }}
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {peers.map((p, i) => {
+              const isMain = p.is_subject
+              const growthColor = (v: number | null | undefined) =>
+                v == null ? 'rgba(255,255,255,0.65)'
+                : v > 0 ? '#22c55e'
+                : v < 0 ? '#ef4444'
+                : 'rgba(255,255,255,0.65)'
+
+              return (
+                <tr
+                  key={i}
+                  style={{
+                    borderBottom: '1px solid rgba(255,255,255,0.04)',
+                    background: isMain ? 'rgba(201,168,76,0.05)' : 'transparent',
+                  }}
+                >
+                  {/* Company */}
+                  <td className="px-4 py-2.5">
+                    <p
+                      className="font-cinzel text-xs font-bold"
+                      style={{ color: isMain ? '#FFD700' : 'rgba(255,255,255,0.85)' }}
+                    >
+                      {p.ticker}
+                      {isMain && (
+                        <span className="font-raleway font-normal text-xs ml-1.5" style={{ color: 'rgba(201,168,76,0.55)' }}>
+                          ← subject
+                        </span>
+                      )}
+                    </p>
+                    <p className="font-raleway text-xs mt-0.5 truncate max-w-[120px]" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                      {p.name}
+                    </p>
+                  </td>
+                  {/* Price */}
+                  <td className="px-4 py-2.5 font-cinzel text-xs" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                    {p.price ? `$${p.price.toFixed(2)}` : '—'}
+                  </td>
+                  {/* P/E */}
+                  <td className="px-4 py-2.5 font-cinzel text-xs" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                    {fmtNum(p.pe_ratio)}
+                  </td>
+                  {/* P/B */}
+                  <td className="px-4 py-2.5 font-cinzel text-xs" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                    {fmtNum(p.pb_ratio)}
+                  </td>
+                  {/* Net Margin */}
+                  <td className="px-4 py-2.5 font-cinzel text-xs" style={{ color: growthColor(p.profit_margin) }}>
+                    {fmtPct(p.profit_margin)}
+                  </td>
+                  {/* Rev Growth */}
+                  <td className="px-4 py-2.5 font-cinzel text-xs" style={{ color: growthColor(p.revenue_growth) }}>
+                    {fmtPct(p.revenue_growth)}
+                  </td>
+                  {/* Market Cap */}
+                  <td className="px-4 py-2.5 font-cinzel text-xs" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                    {fmtCap(p.market_cap)}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </ListCard>
+  )
+}
+
 function DataSourcesPanel({ snapshot }: { snapshot: DataSnapshot }) {
   const [panelOpen, setPanelOpen] = useState(false)
 
@@ -917,6 +1076,8 @@ function DataSourcesPanel({ snapshot }: { snapshot: DataSnapshot }) {
 
             {/* List-based cards — full-width stack */}
             <div className="mt-3 space-y-3 pb-8">
+              <PeerComparisonCard peers={snapshot.peer_comparison} />
+              <SecFilingsCard filings={snapshot.sec_filings} />
               <NewsCard items={snapshot.news} />
               <InsidersCard items={snapshot.insider_transactions} />
               <TopHoldersCard holders={snapshot.top_holders} />

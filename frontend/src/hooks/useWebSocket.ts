@@ -70,6 +70,26 @@ export interface TopHolder {
   pct_held: string
 }
 
+export interface SecFiling {
+  form: string        // "10-K" | "10-Q"
+  filed_date: string  // "2024-11-01"
+  report_date: string // "2024-09-28" (period end)
+  url: string         // direct EDGAR filing index URL
+}
+
+export interface PeerData {
+  ticker: string
+  name: string
+  price: number | null
+  pe_ratio: number | null
+  pb_ratio: number | null
+  ps_ratio: number | null
+  profit_margin: number | null
+  revenue_growth: number | null
+  market_cap: number | null
+  is_subject?: boolean   // true for the main ticker row
+}
+
 // DataSnapshot — raw fetched data from yfinance / SEC EDGAR / FRED
 export interface DataSnapshot {
   company:               Record<string, unknown>
@@ -87,6 +107,8 @@ export interface DataSnapshot {
   news:                  NewsItem[]
   insider_transactions:  InsiderTx[]
   top_holders:           TopHolder[]
+  sec_filings:           SecFiling[]
+  peer_comparison:       PeerData[]
 }
 
 interface UseWebSocketReturn {

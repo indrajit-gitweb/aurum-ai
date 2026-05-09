@@ -777,6 +777,128 @@ class YFinanceClient:
             logger.warning("[%s] get_technical_indicators failed: %s", self.ticker, exc)
             return {}
 
+    def get_peer_comparison(
+        self,
+        industry: str = "",
+        sector: str = "",
+        max_peers: int = 3,
+    ) -> list[dict]:
+        """Fetch key valuation/profitability metrics for sector peers.
+
+        Looks up 2-3 well-known comparable tickers from a curated
+        industry/sector mapping, then fetches P/E, P/B, P/S, profit
+        margin, revenue growth and market cap for each.
+
+        Args:
+            industry: yfinance industry string (``ticker.info["industry"]``).
+            sector:   yfinance sector string (fallback when industry not mapped).
+            max_peers: Maximum number of peers to return (default 3).
+
+        Returns:
+            List of dicts with: ticker, name, price, pe_ratio, pb_ratio,
+            ps_ratio, profit_margin, revenue_growth, market_cap.
+            Empty list on failure.
+        """
+        # ── Industry-level peer candidates ────────────────────────────────────
+        _PEER_MAP: dict[str, list[str]] = {
+            # Technology
+            "Semiconductors":                     ["NVDA", "AMD", "INTC", "QCOM", "AVGO"],
+            "Software—Application":               ["MSFT", "ADBE", "CRM", "NOW"],
+            "Software—Infrastructure":            ["MSFT", "ORCL", "IBM", "CSCO"],
+            "Internet Content & Information":     ["GOOGL", "META", "SNAP"],
+            "Consumer Electronics":               ["AAPL", "MSFT", "SONY"],
+            "Electronic Components":              ["TXN", "AMAT", "KLAC"],
+            "Computer Hardware":                  ["DELL", "HPQ", "NTAP"],
+            "Communication Equipment":            ["CSCO", "JNPR", "ANET"],
+            # Finance
+            "Banks—Regional":                     ["JPM", "BAC", "WFC", "USB"],
+            "Banks—Diversified":                  ["JPM", "BAC", "C", "WFC"],
+            "Financial Services":                 ["V", "MA", "AXP", "PYPL"],
+            "Insurance—Life":                     ["MET", "PRU", "AFL"],
+            "Insurance—Property & Casualty":      ["PGR", "TRV", "CB"],
+            "Asset Management":                   ["BLK", "SCHW", "MS"],
+            "Capital Markets":                    ["GS", "MS", "JPM"],
+            # Healthcare
+            "Drug Manufacturers—General":         ["JNJ", "PFE", "LLY", "MRK", "ABBV"],
+            "Drug Manufacturers—Specialty & Generic": ["BMY", "AMGN", "GILD"],
+            "Biotechnology":                      ["AMGN", "GILD", "BIIB", "REGN", "VRTX"],
+            "Medical Devices":                    ["ABT", "MDT", "SYK", "BSX"],
+            "Healthcare Plans":                   ["UNH", "CVS", "ELV", "CI"],
+            # Consumer Cyclical
+            "Internet Retail":                    ["AMZN", "SHOP", "ETSY", "EBAY"],
+            "Specialty Retail":                   ["TGT", "COST", "WMT", "HD"],
+            "Apparel Retail":                     ["NKE", "GAP", "PVH"],
+            "Restaurants":                        ["MCD", "SBUX", "YUM", "CMG"],
+            "Auto Manufacturers":                 ["TSLA", "GM", "F", "TM"],
+            "Auto Parts":                         ["MGA", "APTV", "BWA"],
+            # Consumer Defensive
+            "Food Distribution":                  ["WMT", "COST", "KR"],
+            "Beverages—Non-Alcoholic":            ["KO", "PEP", "MNST"],
+            "Tobacco":                            ["MO", "PM", "BTI"],
+            # Industrials
+            "Aerospace & Defense":                ["BA", "LMT", "RTX", "NOC", "GD"],
+            "Industrial Conglomerates":           ["GE", "HON", "MMM"],
+            "Specialty Chemicals":                ["LIN", "APD", "SHW"],
+            "Oil & Gas E&P":                      ["XOM", "CVX", "COP", "EOG"],
+            "Oil & Gas Integrated":               ["XOM", "CVX", "BP"],
+            "Oil & Gas Refining & Marketing":     ["VLO", "PSX", "MPC"],
+            # Real Estate
+            "REIT—Retail":                        ["SPG", "O", "NNN"],
+            "REIT—Industrial":                    ["PLD", "EGP", "STAG"],
+            "REIT—Residential":                   ["AVB", "EQR", "MAA"],
+            # Utilities
+            "Utilities—Regulated Electric":       ["NEE", "DUK", "SO", "AEP"],
+            "Utilities—Regulated Gas":            ["SRE", "ATO", "NI"],
+            # Telecom
+            "Telecom Services":                   ["T", "VZ", "TMUS"],
+            # Materials
+            "Steel":                              ["NUE", "STLD", "CLF"],
+            "Gold":                               ["NEM", "GOLD", "AEM"],
+            "Copper":                             ["FCX", "SCCO"],
+        }
+        # ── Sector-level fallbacks ────────────────────────────────────────────
+        _SECTOR_PEERS: dict[str, list[str]] = {
+            "Technology":             ["AAPL", "MSFT", "GOOGL", "NVDA"],
+            "Financial Services":     ["JPM", "BAC", "V", "MA"],
+            "Healthcare":             ["JNJ", "UNH", "PFE", "LLY"],
+            "Consumer Cyclical":      ["AMZN", "TSLA", "HD", "NKE"],
+            "Consumer Defensive":     ["WMT", "PG", "KO", "COST"],
+            "Industrials":            ["HON", "GE", "CAT", "BA"],
+            "Energy":                 ["XOM", "CVX", "COP", "SLB"],
+            "Real Estate":            ["AMT", "PLD", "EQIX", "SPG"],
+            "Utilities":              ["NEE", "DUK", "SO", "AEP"],
+            "Basic Materials":        ["LIN", "FCX", "NEM", "NUE"],
+            "Communication Services": ["GOOGL", "META", "NFLX", "DIS"],
+        }
+
+        candidates: list[str] = _PEER_MAP.get(industry, [])
+        if not candidates:
+            candidates = _SECTOR_PEERS.get(sector, [])
+        if not candidates:
+            return []
+
+        exclude_upper = self.ticker.upper()
+        peers = [t for t in candidates if t.upper() != exclude_upper][:max_peers]
+
+        results: list[dict] = []
+        for peer_ticker in peers:
+            try:
+                info: dict = yf.Ticker(peer_ticker).info or {}
+                results.append({
+                    "ticker":         peer_ticker,
+                    "name":           info.get("shortName") or info.get("longName") or peer_ticker,
+                    "price":          info.get("currentPrice") or info.get("regularMarketPrice"),
+                    "pe_ratio":       info.get("trailingPE"),
+                    "pb_ratio":       info.get("priceToBook"),
+                    "ps_ratio":       info.get("priceToSalesTrailing12Months"),
+                    "profit_margin":  info.get("profitMargins"),
+                    "revenue_growth": info.get("revenueGrowth"),
+                    "market_cap":     info.get("marketCap"),
+                })
+            except Exception as exc:
+                logger.warning("[peer] %s fetch failed: %s", peer_ticker, exc)
+        return results
+
     # ─────────────────────────────────────────────────────────────────────────
     # Private helpers
     # ─────────────────────────────────────────────────────────────────────────
