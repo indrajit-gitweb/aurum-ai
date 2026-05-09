@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import axios from 'axios'
-import { BACKEND_URL, DEFAULT_PERSONAS, PersonaId } from '@/lib/constants'
+import { BACKEND_URL, PersonaId } from '@/lib/constants'
 
 interface ApiKeys {
   groq: string
@@ -42,7 +42,7 @@ export function useAnalysis(): UseAnalysisReturn {
     ticker: '',
     startDate: oneYearAgo,
     endDate: today,
-    selectedPersonas: [...DEFAULT_PERSONAS],
+    selectedPersonas: [],   // start empty — user picks from category tabs
     apiKeys: { groq: '', gemini: '', openrouter: '' },
   })
   const [isLoading, setIsLoading] = useState(false)
@@ -86,7 +86,7 @@ export function useAnalysis(): UseAnalysisReturn {
   }, [])
 
   const resetToDefault = useCallback(() => {
-    setForm((f) => ({ ...f, selectedPersonas: [...DEFAULT_PERSONAS] }))
+    setForm((f) => ({ ...f, selectedPersonas: [] }))  // clear all — user picks from categories
   }, [])
 
   const validate = useCallback((): string | null => {

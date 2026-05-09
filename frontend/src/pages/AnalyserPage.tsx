@@ -327,7 +327,7 @@ export default function AnalyserPage() {
               data-hover
             >
               <RotateCcw size={13} />
-              Default
+              Reset
             </button>
           </div>
 
