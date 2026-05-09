@@ -359,6 +359,26 @@ function PipelineStepsBar({ steps }: { steps: PipelineStep[] }) {
   )
 }
 
+// ─── JSON fence stripper — extracts plain reasoning from raw LLM output ─────────
+// Some quick-model responses wrap output in ```json { ... } ``` fences.
+// This strips the fence and extracts the "reasoning" field if present.
+function cleanReasoning(raw: string): string {
+  if (!raw) return ''
+  const stripped = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/,'').trim()
+  try {
+    const parsed = JSON.parse(stripped)
+    if (typeof parsed.reasoning === 'string' && parsed.reasoning.length > 0) return parsed.reasoning
+    // Sometimes the whole object is the content — try signal+reasoning shape
+    if (typeof parsed === 'object' && parsed !== null) {
+      const r = parsed.reasoning ?? parsed.analysis ?? parsed.content ?? parsed.text
+      if (typeof r === 'string' && r.length > 0) return r
+    }
+  } catch {
+    // not JSON — use stripped text as-is
+  }
+  return stripped
+}
+
 // ─── Markdown renderer — handles **bold**, - bullets, **Section** headings ──────
 function renderMarkdown(text: string): React.ReactNode[] {
   if (!text) return []
@@ -416,45 +436,6 @@ function renderMarkdown(text: string): React.ReactNode[] {
   })
 }
 
-// ─── Debate Section ────────────────────────────────────────────────────────────
-function DebateSection({ bullLines, bearLines }: { bullLines: string[]; bearLines: string[] }) {
-  if (bullLines.length === 0 && bearLines.length === 0) return null
-  const bullText = bullLines.join('\n\n')
-  const bearText = bearLines.join('\n\n')
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 30 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.7 }}
-      className="mt-6"
-    >
-      <h3 className="font-cinzel font-semibold text-white text-base mb-4 flex items-center gap-3">
-        <span style={{ color: 'rgba(201,168,76,0.5)' }}>—</span>
-        Bull vs Bear Debate
-        <span style={{ color: 'rgba(201,168,76,0.5)' }}>—</span>
-      </h3>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Bull */}
-        <div className="p-5 overflow-y-auto" style={{ background: 'rgba(34,197,94,0.04)', border: '1px solid rgba(34,197,94,0.2)', maxHeight: '480px' }}>
-          <div className="flex items-center gap-2 mb-3 pb-2" style={{ borderBottom: '1px solid rgba(34,197,94,0.15)' }}>
-            <TrendingUp size={14} style={{ color: '#22c55e' }} />
-            <span className="font-cinzel text-xs font-bold tracking-widest uppercase" style={{ color: '#22c55e' }}>Bull Case</span>
-          </div>
-          <div>{renderMarkdown(bullText)}</div>
-        </div>
-        {/* Bear */}
-        <div className="p-5 overflow-y-auto" style={{ background: 'rgba(239,68,68,0.04)', border: '1px solid rgba(239,68,68,0.2)', maxHeight: '480px' }}>
-          <div className="flex items-center gap-2 mb-3 pb-2" style={{ borderBottom: '1px solid rgba(239,68,68,0.15)' }}>
-            <TrendingDown size={14} style={{ color: '#ef4444' }} />
-            <span className="font-cinzel text-xs font-bold tracking-widest uppercase" style={{ color: '#ef4444' }}>Bear Case</span>
-          </div>
-          <div>{renderMarkdown(bearText)}</div>
-        </div>
-      </div>
-    </motion.div>
-  )
-}
 
 // ─── Confidence Arc ────────────────────────────────────────────────────────────
 function ConfidenceArc({ confidence }: { confidence: number }) {
@@ -598,32 +579,42 @@ function FinalResultBanner({ result, ticker, onExportPDF }: { result: FinalResul
               style={{ color: 'rgba(201,168,76,0.7)', borderBottom: '1px solid rgba(201,168,76,0.1)', paddingBottom: '8px' }}>
               Persona Analysis
             </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="flex flex-col gap-4">
               {(result.persona_signals || []).map((sig) => {
                 const persona = PERSONAS.find((p) => p.id === sig.agent)
                 const sigUp = (sig.signal || '').toUpperCase()
                 const color = sigUp === 'BULLISH' ? '#22c55e' : sigUp === 'BEARISH' ? '#ef4444' : '#C0C0C0'
+                const reasoning = cleanReasoning(sig.reasoning || '')
                 return (
-                  <div key={sig.agent} style={{ border: `1px solid ${color}20`, background: `${color}04` }}>
-                    <div className="flex items-center gap-3 px-4 py-3"
+                  <div key={sig.agent} style={{ border: `1px solid ${color}25`, background: `${color}04` }}>
+                    {/* Card header */}
+                    <div className="flex items-center gap-4 px-6 py-4"
                       style={{ borderBottom: `1px solid ${color}15` }}>
-                      <div className="w-8 h-8 flex items-center justify-center flex-shrink-0 font-cinzel text-xs font-bold"
-                        style={{ background: `${color}15`, color, border: `1px solid ${color}30` }}>
+                      <div className="w-10 h-10 flex items-center justify-center flex-shrink-0 font-cinzel text-sm font-bold"
+                        style={{ background: `${color}18`, color, border: `1px solid ${color}35` }}>
                         {persona?.initials || sig.agent.slice(0, 2).toUpperCase()}
                       </div>
-                      <div className="min-w-0">
-                        <p className="font-cinzel text-xs font-semibold text-white truncate">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-cinzel text-sm font-semibold text-white">
                           {persona?.name || sig.agent}
                         </p>
-                        <p className="font-raleway text-xs" style={{ color }}>
-                          {sigUp} · {sig.confidence}%
+                        <p className="font-raleway text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                          {persona?.style || ''}
                         </p>
                       </div>
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        <span className="font-cinzel text-xs font-bold tracking-widest uppercase px-3 py-1"
+                          style={{ background: `${color}15`, color, border: `1px solid ${color}30` }}>
+                          {sigUp}
+                        </span>
+                        <span className="font-raleway text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                          {sig.confidence}% confidence
+                        </span>
+                      </div>
                     </div>
-                    <div className="px-4 py-3">
-                      <p className="font-raleway text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.55)' }}>
-                        {(sig.reasoning || '').slice(0, 220)}{(sig.reasoning || '').length > 220 ? '…' : ''}
-                      </p>
+                    {/* Full reasoning */}
+                    <div className="px-6 py-5">
+                      {renderMarkdown(reasoning)}
                     </div>
                   </div>
                 )
@@ -1238,8 +1229,6 @@ export default function LiveAnalysisPage() {
   )
 
   const [thoughtLines, setThoughtLines] = useState<ThoughtLine[]>([])
-  const [bullLines, setBullLines] = useState<string[]>([])
-  const [bearLines, setBearLines] = useState<string[]>([])
   const timelineBottomRef = useRef<HTMLDivElement>(null)
   const lineCounter = useRef(0)
   // BUG-17 fix: track last-processed event index so batched arrivals aren't dropped
@@ -1328,18 +1317,11 @@ export default function LiveAnalysisPage() {
           }
           break
 
-        // Backend sends type="debate_message" + side="bull"|"bear"
+        // debate_message events are captured in FinalResult.bull_case / bear_case
+        // and displayed in the verdict section — no separate live accumulation needed
         case 'debate_message':
-          if (ev.side === 'bull' && agentText) setBullLines((prev) => [...prev, agentText])
-          if (ev.side === 'bear' && agentText) setBearLines((prev) => [...prev, agentText])
-          break
-
-        // Fallback for legacy event types
         case 'debate_bull':
-          if (agentText) setBullLines((prev) => [...prev, agentText])
-          break
         case 'debate_bear':
-          if (agentText) setBearLines((prev) => [...prev, agentText])
           break
       }
     }
@@ -1516,13 +1498,6 @@ ${finalResult.target_price ? `<p class="conf">Target Price: <strong style="color
             <ThoughtStream lines={thoughtLines} isConnected={isConnected} />
           </div>
         </div>
-
-        {/* Debate */}
-        <AnimatePresence>
-          {(bullLines.length > 0 || bearLines.length > 0) && (
-            <DebateSection bullLines={bullLines} bearLines={bearLines} />
-          )}
-        </AnimatePresence>
 
         {/* Final Result */}
         <AnimatePresence>
