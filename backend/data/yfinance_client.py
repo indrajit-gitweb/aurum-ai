@@ -327,6 +327,90 @@ class YFinanceClient:
             return {}
 
     # ─────────────────────────────────────────────────────────────────────────
+    # Historical financial statements (historical analysis mode)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _col_on_or_before(self, df: pd.DataFrame, end_date: str) -> "Optional[pd.Series]":
+        """Return the most recent DataFrame column with timestamp ≤ end_date."""
+        if df is None or df.empty:
+            return None
+        end_ts = pd.Timestamp(end_date)
+        valid = [c for c in df.columns if pd.Timestamp(c) <= end_ts]
+        if not valid:
+            valid = list(df.columns)          # fallback: use oldest available
+        if not valid:
+            return None
+        best = max(valid, key=lambda c: pd.Timestamp(c))
+        return df[best]
+
+    def get_historical_income_statement(self, end_date: str) -> dict:
+        """Return the annual income statement for the period ending on or before end_date."""
+        try:
+            df = self._yf.income_stmt
+            if df is None or df.empty:
+                return {}
+            series = self._col_on_or_before(df, end_date)
+            if series is None:
+                return {}
+            raw = {str(k): (None if pd.isna(v) else float(v)) for k, v in series.items()}
+            result = _normalize_statement(raw, _INCOME_ALIASES)
+            rev = result.get("revenue") or result.get("total_revenue")
+            if rev and rev != 0:
+                gp = result.get("gross_profit")
+                oi = result.get("operating_income")
+                ni = result.get("net_income")
+                if gp is not None:
+                    result.setdefault("gross_margin", round(gp / rev, 4))
+                if oi is not None:
+                    result.setdefault("operating_margin", round(oi / rev, 4))
+                if ni is not None:
+                    result.setdefault("net_margin", round(ni / rev, 4))
+            return result
+        except Exception as exc:
+            logger.warning("[%s] get_historical_income_statement failed: %s", self.ticker, exc)
+            return {}
+
+    def get_historical_balance_sheet(self, end_date: str) -> dict:
+        """Return the annual balance sheet for the period ending on or before end_date."""
+        try:
+            df = self._yf.balance_sheet
+            if df is None or df.empty:
+                return {}
+            series = self._col_on_or_before(df, end_date)
+            if series is None:
+                return {}
+            raw = {str(k): (None if pd.isna(v) else float(v)) for k, v in series.items()}
+            result = _normalize_statement(raw, _BALANCE_ALIASES)
+            ca = result.get("current_assets")
+            cl = result.get("current_liabilities")
+            td = result.get("total_debt")
+            eq = (result.get("stockholders_equity") or result.get("total_equity")
+                  or result.get("common_stock_equity"))
+            if ca and cl and cl != 0:
+                result["current_ratio"] = round(ca / cl, 2)
+            if td is not None and eq and eq != 0:
+                result["debt_equity"] = round(td / eq, 2)
+            return result
+        except Exception as exc:
+            logger.warning("[%s] get_historical_balance_sheet failed: %s", self.ticker, exc)
+            return {}
+
+    def get_historical_cashflow(self, end_date: str) -> dict:
+        """Return the annual cash-flow statement for the period ending on or before end_date."""
+        try:
+            df = self._yf.cashflow
+            if df is None or df.empty:
+                return {}
+            series = self._col_on_or_before(df, end_date)
+            if series is None:
+                return {}
+            raw = {str(k): (None if pd.isna(v) else float(v)) for k, v in series.items()}
+            return _normalize_statement(raw, _CASHFLOW_ALIASES)
+        except Exception as exc:
+            logger.warning("[%s] get_historical_cashflow failed: %s", self.ticker, exc)
+            return {}
+
+    # ─────────────────────────────────────────────────────────────────────────
     # News
     # ─────────────────────────────────────────────────────────────────────────
 

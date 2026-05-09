@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, Eye, EyeOff, AlertTriangle, RotateCcw, Layers } from 'lucide-react'
+import { ChevronDown, Eye, EyeOff, AlertTriangle, RotateCcw, Layers, Clock, TrendingUp } from 'lucide-react'
 import { useAnalysis } from '@/hooks/useAnalysis'
-import { PERSONAS, PERSONA_CATEGORIES } from '@/lib/constants'
-import type { PersonaId } from '@/lib/constants'
+import { PERSONAS, PERSONA_CATEGORIES, ANALYSIS_WINDOWS } from '@/lib/constants'
+import type { PersonaId, AnalysisWindow, AnalysisMode } from '@/lib/constants'
 import GoldDivider from '@/components/layout/GoldDivider'
 
 // ─── Gold Input ───────────────────────────────────────────────────────────────
@@ -183,8 +183,8 @@ export default function AnalyserPage() {
     isLoading,
     error,
     setTicker,
-    setStartDate,
-    setEndDate,
+    setAnalysisWindow,
+    setAnalysisMode,
     togglePersona,
     setApiKey,
     selectAll,
@@ -265,43 +265,122 @@ export default function AnalyserPage() {
             <h2 className="font-cinzel font-semibold text-white text-lg">Target Security</h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
-            <div className="pt-6">
-              <GoldInput
-                label="Stock Ticker"
-                value={form.ticker}
-                onChange={setTicker}
-                placeholder="AAPL"
-              />
-              <p className="font-raleway text-xs mt-2" style={{ color: 'rgba(255,255,255,0.3)' }}>
-                NYSE · NASDAQ · Global markets
-              </p>
-              <p className="font-raleway text-xs mt-1" style={{ color: 'rgba(201,168,76,0.45)' }}>
-                Indian stocks: add{' '}
-                <span style={{ fontFamily: 'monospace', color: 'rgba(201,168,76,0.7)' }}>.NS</span> for NSE
-                or{' '}
-                <span style={{ fontFamily: 'monospace', color: 'rgba(201,168,76,0.7)' }}>.BO</span> for BSE
-                &nbsp;(e.g. <span style={{ fontFamily: 'monospace' }}>RELIANCE.NS</span>)
-              </p>
-            </div>
+          {/* Ticker */}
+          <div className="pt-6 mb-10">
+            <GoldInput
+              label="Stock Ticker"
+              value={form.ticker}
+              onChange={setTicker}
+              placeholder="AAPL"
+            />
+            <p className="font-raleway text-xs mt-2" style={{ color: 'rgba(255,255,255,0.3)' }}>
+              NYSE · NASDAQ · Global markets
+            </p>
+            <p className="font-raleway text-xs mt-1" style={{ color: 'rgba(201,168,76,0.45)' }}>
+              Indian stocks: add{' '}
+              <span style={{ fontFamily: 'monospace', color: 'rgba(201,168,76,0.7)' }}>.NS</span> for NSE
+              or{' '}
+              <span style={{ fontFamily: 'monospace', color: 'rgba(201,168,76,0.7)' }}>.BO</span> for BSE
+              &nbsp;(e.g. <span style={{ fontFamily: 'monospace' }}>RELIANCE.NS</span>)
+            </p>
+          </div>
 
-            <div className="pt-6">
-              <GoldInput
-                label="Analysis Start"
-                value={form.startDate}
-                onChange={setStartDate}
-                type="date"
-              />
+          {/* Analysis Mode */}
+          <div className="mb-6">
+            <p className="font-raleway text-xs tracking-[0.2em] uppercase mb-3" style={{ color: 'rgba(255,255,255,0.3)' }}>
+              Analysis Mode
+            </p>
+            <div className="flex gap-3">
+              {(
+                [
+                  { mode: 'current' as AnalysisMode, icon: TrendingUp, label: 'Current Analysis', desc: 'Latest fundamentals + technical window' },
+                  { mode: 'historical' as AnalysisMode, icon: Clock, label: 'Historical Analysis', desc: 'Financials & valuation as of the selected period' },
+                ] as const
+              ).map(({ mode, icon: Icon, label, desc }) => {
+                const active = form.analysisMode === mode
+                return (
+                  <button
+                    key={mode}
+                    onClick={() => setAnalysisMode(mode)}
+                    className="flex items-start gap-3 flex-1 px-4 py-3 text-left transition-all duration-200"
+                    style={{
+                      background: active ? 'rgba(201,168,76,0.07)' : 'transparent',
+                      border: `1px solid ${active ? 'rgba(201,168,76,0.45)' : 'rgba(255,255,255,0.08)'}`,
+                    }}
+                    data-hover
+                  >
+                    <Icon
+                      size={16}
+                      className="mt-0.5 shrink-0"
+                      style={{ color: active ? '#C9A84C' : 'rgba(255,255,255,0.3)' }}
+                    />
+                    <div>
+                      <p className="font-raleway text-sm" style={{ color: active ? '#C9A84C' : 'rgba(255,255,255,0.55)' }}>
+                        {label}
+                      </p>
+                      <p className="font-raleway text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                        {desc}
+                      </p>
+                    </div>
+                    {active && (
+                      <div
+                        className="ml-auto mt-0.5 w-3 h-3 rounded-full shrink-0 flex items-center justify-center"
+                        style={{ background: '#C9A84C' }}
+                      >
+                        <div className="w-1 h-1 rounded-full bg-black" />
+                      </div>
+                    )}
+                  </button>
+                )
+              })}
             </div>
+          </div>
 
-            <div className="pt-6">
-              <GoldInput
-                label="Analysis End"
-                value={form.endDate}
-                onChange={setEndDate}
-                type="date"
-              />
+          {/* Window Presets */}
+          <div>
+            <p className="font-raleway text-xs tracking-[0.2em] uppercase mb-3" style={{ color: 'rgba(255,255,255,0.3)' }}>
+              {form.analysisMode === 'current'
+                ? 'Technical Window — price history for RSI, MACD & momentum'
+                : 'Historical Period — analysis as of this many months ago'}
+            </p>
+            <div className="flex gap-2 flex-wrap">
+              {ANALYSIS_WINDOWS.map((w) => {
+                const active = form.analysisWindow === w
+                return (
+                  <button
+                    key={w}
+                    onClick={() => setAnalysisWindow(w as AnalysisWindow)}
+                    className="font-cinzel font-bold px-5 py-2 transition-all duration-200"
+                    style={{
+                      background: active ? 'rgba(201,168,76,0.12)' : 'transparent',
+                      border: `1px solid ${active ? '#C9A84C' : 'rgba(255,255,255,0.1)'}`,
+                      color: active ? '#FFD700' : 'rgba(255,255,255,0.35)',
+                      boxShadow: active ? '0 0 14px rgba(201,168,76,0.15)' : 'none',
+                      fontSize: '13px',
+                      letterSpacing: '0.08em',
+                    }}
+                    data-hover
+                  >
+                    {w}
+                  </button>
+                )
+              })}
             </div>
+            <AnimatePresence mode="wait">
+              <motion.p
+                key={`${form.analysisMode}-${form.analysisWindow}`}
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="font-raleway text-xs mt-2"
+                style={{ color: 'rgba(255,255,255,0.22)' }}
+              >
+                {form.analysisMode === 'current'
+                  ? `Fundamentals always reflect the latest available data. Price indicators use the last ${form.analysisWindow}.`
+                  : `Financial statements and valuations reflect the annual report closest to ${form.analysisWindow} ago. Price data also covers this period.`}
+              </motion.p>
+            </AnimatePresence>
           </div>
         </motion.div>
 

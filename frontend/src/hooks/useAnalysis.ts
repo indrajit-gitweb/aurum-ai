@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import axios from 'axios'
-import { BACKEND_URL, PersonaId } from '@/lib/constants'
+import { BACKEND_URL, PersonaId, PERSONAS, WINDOW_MONTHS } from '@/lib/constants'
+import type { AnalysisWindow, AnalysisMode } from '@/lib/constants'
 
 interface ApiKeys {
   groq: string
@@ -10,8 +11,8 @@ interface ApiKeys {
 
 interface AnalysisForm {
   ticker: string
-  startDate: string
-  endDate: string
+  analysisWindow: AnalysisWindow
+  analysisMode: AnalysisMode
   selectedPersonas: PersonaId[]
   apiKeys: ApiKeys
 }
@@ -21,8 +22,8 @@ interface UseAnalysisReturn {
   isLoading: boolean
   error: string | null
   setTicker: (v: string) => void
-  setStartDate: (v: string) => void
-  setEndDate: (v: string) => void
+  setAnalysisWindow: (w: AnalysisWindow) => void
+  setAnalysisMode: (m: AnalysisMode) => void
   togglePersona: (id: PersonaId) => void
   setApiKey: (provider: keyof ApiKeys, value: string) => void
   selectAll: () => void
@@ -32,17 +33,23 @@ interface UseAnalysisReturn {
   validate: () => string | null
 }
 
-const today = new Date().toISOString().split('T')[0]
-const oneYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-
-import { PERSONAS } from '@/lib/constants'
+/** Compute YYYY-MM-DD dates from a window preset and today */
+function windowToDates(window: AnalysisWindow): { startDate: string; endDate: string } {
+  const today = new Date()
+  const months = WINDOW_MONTHS[window]
+  const start = new Date(today.getFullYear(), today.getMonth() - months, today.getDate())
+  return {
+    startDate: start.toISOString().split('T')[0],
+    endDate: today.toISOString().split('T')[0],
+  }
+}
 
 export function useAnalysis(): UseAnalysisReturn {
   const [form, setForm] = useState<AnalysisForm>({
     ticker: '',
-    startDate: oneYearAgo,
-    endDate: today,
-    selectedPersonas: [],   // start empty — user picks from category tabs
+    analysisWindow: '1Y',
+    analysisMode: 'current',
+    selectedPersonas: [],
     apiKeys: { groq: '', gemini: '', openrouter: '' },
   })
   const [isLoading, setIsLoading] = useState(false)
@@ -52,12 +59,12 @@ export function useAnalysis(): UseAnalysisReturn {
     setForm((f) => ({ ...f, ticker: v.toUpperCase().trim() }))
   }, [])
 
-  const setStartDate = useCallback((v: string) => {
-    setForm((f) => ({ ...f, startDate: v }))
+  const setAnalysisWindow = useCallback((w: AnalysisWindow) => {
+    setForm((f) => ({ ...f, analysisWindow: w }))
   }, [])
 
-  const setEndDate = useCallback((v: string) => {
-    setForm((f) => ({ ...f, endDate: v }))
+  const setAnalysisMode = useCallback((m: AnalysisMode) => {
+    setForm((f) => ({ ...f, analysisMode: m }))
   }, [])
 
   const togglePersona = useCallback((id: PersonaId) => {
@@ -77,7 +84,6 @@ export function useAnalysis(): UseAnalysisReturn {
     setForm((f) => ({ ...f, selectedPersonas: PERSONAS.map((p) => p.id) as PersonaId[] }))
   }, [])
 
-  // Add all personas in a category to the selection without deselecting others
   const selectCategory = useCallback((ids: PersonaId[]) => {
     setForm((f) => ({
       ...f,
@@ -86,14 +92,12 @@ export function useAnalysis(): UseAnalysisReturn {
   }, [])
 
   const resetToDefault = useCallback(() => {
-    setForm((f) => ({ ...f, selectedPersonas: [] }))  // clear all — user picks from categories
+    setForm((f) => ({ ...f, selectedPersonas: [] }))
   }, [])
 
   const validate = useCallback((): string | null => {
     if (!form.ticker) return 'Please enter a stock ticker'
     if (form.ticker.length > 10) return 'Invalid ticker symbol'
-    if (!form.startDate || !form.endDate) return 'Please select a date range'
-    if (new Date(form.startDate) >= new Date(form.endDate)) return 'Start date must be before end date'
     if (form.selectedPersonas.length === 0) return 'Please select at least one analyst'
     return null
   }, [form])
@@ -109,13 +113,15 @@ export function useAnalysis(): UseAnalysisReturn {
     setError(null)
 
     try {
+      const { startDate, endDate } = windowToDates(form.analysisWindow)
       const payload = {
         ticker: form.ticker,
-        start_date: form.startDate,
-        end_date: form.endDate,
+        start_date: startDate,
+        end_date: endDate,
+        analysis_mode: form.analysisMode,
         personas: form.selectedPersonas,
-        ...(form.apiKeys.groq      && { user_groq_key:       form.apiKeys.groq }),
-        ...(form.apiKeys.gemini    && { user_gemini_key:     form.apiKeys.gemini }),
+        ...(form.apiKeys.groq       && { user_groq_key:       form.apiKeys.groq }),
+        ...(form.apiKeys.gemini     && { user_gemini_key:     form.apiKeys.gemini }),
         ...(form.apiKeys.openrouter && { user_openrouter_key: form.apiKeys.openrouter }),
       }
       const res = await axios.post(`${BACKEND_URL}/api/analyze/start`, payload)
@@ -137,8 +143,8 @@ export function useAnalysis(): UseAnalysisReturn {
     isLoading,
     error,
     setTicker,
-    setStartDate,
-    setEndDate,
+    setAnalysisWindow,
+    setAnalysisMode,
     togglePersona,
     setApiKey,
     selectAll,

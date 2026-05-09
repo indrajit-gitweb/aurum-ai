@@ -177,6 +177,16 @@ export const PERSONA_CATEGORIES: PersonaCategory[] = [
   },
 ]
 
+// ─── Analysis Window & Mode ──────────────────────────────────────────────────
+export const ANALYSIS_WINDOWS = ['3M', '6M', '1Y', '2Y', '3Y', '5Y'] as const
+export type AnalysisWindow = typeof ANALYSIS_WINDOWS[number]
+export type AnalysisMode = 'current' | 'historical'
+
+/** Number of months each preset window represents */
+export const WINDOW_MONTHS: Record<AnalysisWindow, number> = {
+  '3M': 3, '6M': 6, '1Y': 12, '2Y': 24, '3Y': 36, '5Y': 60,
+}
+
 export const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000"
 
 export const SIGNAL_COLORS = {

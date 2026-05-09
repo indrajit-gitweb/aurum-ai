@@ -66,6 +66,7 @@ class AurumState(TypedDict, total=False):
     start_date: str
     end_date: str
     personas: list[str]
+    analysis_mode: str          # "current" | "historical"
 
     # Data layer
     price_history: Any          # pd.DataFrame
@@ -347,16 +348,30 @@ async def _node_fundamentals(state: AurumState, on_event: Callable) -> None:
         }
     )
     yf = YFinanceClient(state["ticker"])
+    historical = state.get("analysis_mode", "current") == "historical"
+    end_date   = state.get("end_date", "")
 
-    # Run all six yfinance fundamental calls concurrently in thread pool
-    fundamentals, balance_sheet, income_statement, cashflow, inst_ownership, shares_history = await asyncio.gather(
-        asyncio.to_thread(yf.get_fundamentals),
-        asyncio.to_thread(yf.get_balance_sheet),
-        asyncio.to_thread(yf.get_income_statement),
-        asyncio.to_thread(yf.get_cashflow),
-        asyncio.to_thread(yf.get_institutional_ownership),
-        asyncio.to_thread(yf.get_shares_outstanding_change),
-    )
+    # Run all six yfinance fundamental calls concurrently in thread pool.
+    # In historical mode the three financial-statement calls pull the annual
+    # filing closest to end_date instead of always the latest.
+    if historical:
+        fundamentals, balance_sheet, income_statement, cashflow, inst_ownership, shares_history = await asyncio.gather(
+            asyncio.to_thread(yf.get_fundamentals),
+            asyncio.to_thread(yf.get_historical_balance_sheet, end_date),
+            asyncio.to_thread(yf.get_historical_income_statement, end_date),
+            asyncio.to_thread(yf.get_historical_cashflow, end_date),
+            asyncio.to_thread(yf.get_institutional_ownership),
+            asyncio.to_thread(yf.get_shares_outstanding_change),
+        )
+    else:
+        fundamentals, balance_sheet, income_statement, cashflow, inst_ownership, shares_history = await asyncio.gather(
+            asyncio.to_thread(yf.get_fundamentals),
+            asyncio.to_thread(yf.get_balance_sheet),
+            asyncio.to_thread(yf.get_income_statement),
+            asyncio.to_thread(yf.get_cashflow),
+            asyncio.to_thread(yf.get_institutional_ownership),
+            asyncio.to_thread(yf.get_shares_outstanding_change),
+        )
     state["fundamentals"] = fundamentals
     state["balance_sheet"] = balance_sheet
     state["income_statement"] = income_statement
@@ -726,6 +741,27 @@ async def _node_persona(
                     fund.setdefault("shares_change_3yr", sc3)
             except Exception:
                 pass
+
+            # ── Historical mode: recompute price-based multiples at end_date ──
+            if state.get("analysis_mode", "current") == "historical":
+                try:
+                    hist_price = tech.get("current_price")   # last price in the window
+                    hist_eps   = (inc.get("eps") or inc.get("basic_eps")
+                                  or inc.get("diluted_eps"))
+                    if hist_price and hist_eps and hist_eps != 0:
+                        fund["pe_ratio"] = round(float(hist_price) / float(hist_eps), 2)
+                    # Historical P/B = price / (book equity / shares)
+                    eq_hist  = (bal.get("stockholders_equity") or bal.get("common_stock_equity"))
+                    sh_hist  = (bal.get("ordinary_shares_number")
+                                or fund.get("shares_outstanding"))
+                    if hist_price and eq_hist and sh_hist and sh_hist != 0:
+                        bvps_hist = eq_hist / sh_hist
+                        if bvps_hist != 0:
+                            fund["pb_ratio"] = round(float(hist_price) / float(bvps_hist), 2)
+                    # Label the analysis period so personas see context
+                    fund["analysis_as_of"] = f"{state['end_date']} (Historical)"
+                except Exception:
+                    pass
 
             fund_enriched = {
                 **fund,
@@ -1242,6 +1278,7 @@ class TradingGraph:
         personas: list[str],
         llm_router: LLMRouter,
         on_event: Callable[..., Coroutine],
+        analysis_mode: str = "current",
     ) -> FinalResult:
         """Execute the full pipeline and return a ``FinalResult``.
 
@@ -1251,6 +1288,9 @@ class TradingGraph:
             personas: List of persona IDs to include.
             llm_router: Configured ``LLMRouter`` instance.
             on_event: Async callable ``(event_dict) -> None`` for streaming.
+            analysis_mode: ``"current"`` (latest fundamentals) or
+                ``"historical"`` (financials from the annual filing closest
+                to ``date_range["end"]``).
 
         Returns:
             ``FinalResult`` with verdict, confidence, target price, and supporting
@@ -1268,6 +1308,7 @@ class TradingGraph:
             "end_date": date_range.get("end", "2025-01-01"),
             "personas": valid_personas,
             "persona_signals": [],
+            "analysis_mode": analysis_mode,
         }
 
         # ── 1. Entry: data fetch (price history) ─────────────────────────────

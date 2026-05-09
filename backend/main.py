@@ -105,6 +105,10 @@ class AnalysisRequest(BaseModel):
     ticker: str = Field(..., description="Stock ticker symbol, e.g. AAPL")
     start_date: str = Field(..., description="Price history start date YYYY-MM-DD")
     end_date: str = Field(..., description="Price history end date YYYY-MM-DD")
+    analysis_mode: str = Field(
+        default="current",
+        description='"current" = latest fundamentals; "historical" = financials from the annual filing closest to end_date',
+    )
     personas: list[str] = Field(
         default=["buffett", "burry"],
         description="Persona IDs to include in the debate",
@@ -313,6 +317,7 @@ async def analyze_websocket(websocket: WebSocket, session_id: str) -> None:
                 personas=request.personas,
                 llm_router=llm_router,
                 on_event=on_event,
+                analysis_mode=request.analysis_mode,
             ),
             timeout=240.0,
         )
