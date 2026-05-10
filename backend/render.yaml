@@ -17,6 +17,8 @@ services:
         sync: false
       - key: SAMBANOVA_API_KEY
         sync: false
+      - key: NVIDIA_API_KEY
+        sync: false
       - key: FRED_API_KEY
         sync: false
       - key: SESSION_FREE_LIMIT

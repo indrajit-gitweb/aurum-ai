@@ -35,9 +35,9 @@ class NvidiaClient:
     # Free-credit tier: all models below consume credits, newer accounts have quota.
     DEEP_MODELS: list[str] = [
         "nvidia/llama-3.3-nemotron-super-49b-v1",   # NVIDIA-tuned reasoning — best quality
-        "meta/llama-3.1-405b-instruct",              # largest Llama — strongest reasoning
         "meta/llama-3.3-70b-instruct",               # solid 70B — reliable fallback
         "stepfun-ai/step-3.5-flash",                 # fast flash model — last resort
+        # Removed: meta/llama-3.1-405b-instruct — HTTP 410 Gone (permanently removed May 2026)
     ]
 
     def __init__(self, api_key: str) -> None:
