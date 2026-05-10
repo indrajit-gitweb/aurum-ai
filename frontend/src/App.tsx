@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { SpeedInsights } from '@vercel/speed-insights/react'
 import CustomCursor from '@/components/layout/CustomCursor'
 import Navbar from '@/components/layout/Navbar'
 import HomePage from '@/pages/HomePage'
@@ -19,6 +20,7 @@ export default function App() {
         <Route path="/results/:sessionId" element={<ResultsPage />} />
         <Route path="/history" element={<HistoryPage />} />
       </Routes>
+      <SpeedInsights />
     </BrowserRouter>
   )
 }
