@@ -2032,24 +2032,68 @@ class TradingGraph:
             for p in persona_results
         ]
 
-        # ── 4. Debate ─────────────────────────────────────────────────────────
+        # ── 4. Early-exit gate — stop if zero personas completed ─────────────
+        # A persona is considered completed only if confidence > 0.
+        # If every selected persona failed (all rate-limited), running 7 more
+        # agents produces empty/generic output and wastes the user's time.
+        # We stop here, emit a clear pipeline_error event, and return a minimal
+        # FinalResult so the frontend shows a meaningful message immediately.
+        completed_personas = [
+            s for s in state.get("persona_signals", [])
+            if s.get("confidence", 0) > 0
+        ]
+        if not completed_personas:
+            error_msg = (
+                "⚠ No persona analysis completed — all LLM providers are temporarily "
+                "rate-limited. The downstream analysis (bull/bear debate, research manager, "
+                "risk agents, portfolio manager) has been skipped because it would produce "
+                "meaningless results without any persona signals.\n\n"
+                "**What to do:**\n"
+                "- Wait 1–2 minutes for free-tier quotas to reset and try again\n"
+                "- Add your own API key (Groq, Gemini, OpenRouter, Cerebras, SambaNova, "
+                "or NVIDIA) in the sidebar for unlimited analysis"
+            )
+            await on_event({
+                "type": "pipeline_error",
+                "message": error_msg,
+            })
+            fund = state.get("fundamentals", {})
+            tech = state.get("technical_indicators", {})
+            return FinalResult(
+                verdict="INSUFFICIENT DATA",
+                confidence=0,
+                target_price=None,
+                summary=error_msg,
+                persona_signals=signal_objs,
+                bull_case="",
+                bear_case="",
+                risk_assessment="",
+                key_metrics={
+                    "current_price": tech.get("current_price"),
+                    "pe_ratio":      fund.get("pe_ratio"),
+                    "market_cap":    fund.get("market_cap"),
+                    "sector":        fund.get("sector"),
+                },
+            )
+
+        # ── 5. Debate ─────────────────────────────────────────────────────────
         await _node_debate_bull(state, llm_router, on_event)
         await _node_debate_bear(state, llm_router, on_event)
 
-        # ── 5. Research synthesis ─────────────────────────────────────────────
+        # ── 6. Research synthesis ─────────────────────────────────────────────
         await _node_research_manager(state, llm_router, on_event)
 
-        # ── 6. Parallel risk views ────────────────────────────────────────────
+        # ── 7. Parallel risk views ────────────────────────────────────────────
         await asyncio.gather(
             _node_risk("aggressive", state, llm_router, on_event),
             _node_risk("conservative", state, llm_router, on_event),
             _node_risk("neutral", state, llm_router, on_event),
         )
 
-        # ── 7. Portfolio manager — final verdict ──────────────────────────────
+        # ── 8. Portfolio manager — final verdict ──────────────────────────────
         result = await _node_portfolio_manager(state, llm_router, on_event)
 
-        # ── 8. Emit raw data snapshot for the frontend "Data Sources" panel ──
+        # ── 9. Emit raw data snapshot for the frontend "Data Sources" panel ──
         # By this point state["fundamentals"] has been enriched in-place by all
         # persona runs (setdefault calls), so it carries CAGRs, PEG, etc.
         try:
