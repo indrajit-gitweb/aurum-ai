@@ -1337,9 +1337,9 @@ async def _node_persona(
             exc_str = str(exc)
             if "exhausted" in exc_str.lower() or "rate limit" in exc_str.lower() or "429" in exc_str:
                 reasoning = (
-                    "⚠ All free LLM providers are temporarily rate-limited. "
-                    "Add your own API key (Groq, Gemini, or OpenRouter) in the sidebar "
-                    "to get unlimited analysis without shared rate limits."
+                    "⚠ All LLM providers are temporarily rate-limited "
+                    "(Groq, Cerebras, SambaNova, Gemini, OpenRouter, NVIDIA). "
+                    "Add your own API key in the sidebar to get unlimited analysis without shared rate limits."
                 )
                 confidence = 0
             else:

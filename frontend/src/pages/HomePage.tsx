@@ -377,7 +377,7 @@ function FreePromiseSection() {
             {
               title: 'Your Keys',
               subtitle: 'BYOK Mode',
-              desc: 'Add your own Groq, Gemini, or OpenRouter keys for unlimited, private analysis.',
+              desc: 'Add your own Groq, Gemini, OpenRouter, Cerebras, SambaNova, or NVIDIA keys for unlimited, private analysis.',
               note: 'Full control. Zero data retention.',
             },
             {

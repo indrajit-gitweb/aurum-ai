@@ -228,7 +228,7 @@ async def start_analysis(request: AnalysisRequest) -> AnalysisStartResponse:
                 status_code=429,
                 detail=(
                     f"Free analysis limit reached ({SESSION_FREE_LIMIT} per session). "
-                    "Provide your own Groq, Gemini, or OpenRouter API key to continue."
+                    "Provide your own API key (Groq, Gemini, OpenRouter, Cerebras, SambaNova, or NVIDIA) to continue."
                 ),
             )
 
