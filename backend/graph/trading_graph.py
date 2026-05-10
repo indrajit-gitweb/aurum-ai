@@ -287,6 +287,301 @@ def _fmt_news(news: list[dict], limit: int = 5) -> str:
     return "\n".join(lines)
 
 
+def _vote_based_synthesis(state: "AurumState") -> tuple[str, str, int]:
+    """Compute a verdict purely from persona vote counts — no LLM needed.
+
+    Used as the final fallback when ALL LLM providers are exhausted so the
+    pipeline can still produce a meaningful result from whatever personas DID
+    complete their analysis.
+
+    Returns:
+        (synthesis_text, signal, confidence)
+    """
+    all_signals = state.get("persona_signals", [])
+    # Only count personas that actually completed (confidence > 0)
+    valid = [s for s in all_signals if s.get("confidence", 0) > 0]
+    total_selected = len(all_signals)
+    total_valid = len(valid)
+
+    if total_valid == 0:
+        return (
+            "No persona signals available — all selected personas failed to complete analysis.",
+            "neutral",
+            0,
+        )
+
+    bullish  = [s for s in valid if s["signal"] == "bullish"]
+    bearish  = [s for s in valid if s["signal"] == "bearish"]
+    neutral  = [s for s in valid if s["signal"] == "neutral"]
+    bull_pct = round(len(bullish) / total_valid * 100)
+    bear_pct = round(len(bearish) / total_valid * 100)
+    avg_conf = round(sum(s["confidence"] for s in valid) / total_valid)
+
+    # Derive signal from majority vote
+    if len(bullish) > len(bearish) and bull_pct >= 50:
+        signal = "bullish"
+        verdict_label = "BUY" if bull_pct >= 65 else "HOLD / LEAN BUY"
+    elif len(bearish) > len(bullish) and bear_pct >= 50:
+        signal = "bearish"
+        verdict_label = "SELL" if bear_pct >= 65 else "HOLD / LEAN SELL"
+    else:
+        signal = "neutral"
+        verdict_label = "HOLD"
+
+    missed_note = (
+        f" ({total_selected - total_valid} persona(s) skipped due to rate limits)"
+        if total_selected > total_valid else ""
+    )
+
+    # Brief per-persona breakdown
+    breakdown_lines = [
+        f"- **{s['agent'].title()}**: {s['signal'].upper()} ({s['confidence']}%)"
+        for s in valid
+    ]
+    breakdown = "\n".join(breakdown_lines)
+
+    synthesis = (
+        f"**Vote-Based Synthesis** *(LLM synthesis unavailable — derived from persona signals{missed_note})*\n\n"
+        f"**{total_valid} of {total_selected} persona(s) completed analysis.**\n"
+        f"{len(bullish)} bullish · {len(bearish)} bearish · {len(neutral)} neutral "
+        f"→ **Verdict: {verdict_label}** (avg confidence: {avg_conf}%)\n\n"
+        f"**Persona Breakdown:**\n{breakdown}\n\n"
+        f"*Note: This synthesis was computed mathematically because all free LLM providers "
+        f"were temporarily rate-limited. Add your own API key for full narrative analysis.*"
+    )
+
+    return synthesis, signal, avg_conf
+
+
+def _rule_based_risk_view(
+    profile: str,
+    state: "AurumState",
+) -> tuple[str, str, int, list]:
+    """Generate a rule-based risk/position-sizing view with zero LLM calls.
+
+    Used as the fallback when all providers are exhausted so risk agents always
+    produce a meaningful recommendation rather than a bare error message.
+
+    Logic:
+        1. Reads the RM signal + confidence from ``state["research_manager_signal"]``.
+        2. Counts persona votes (bullish / bearish / neutral).
+        3. Applies profile-specific position-sizing rules.
+
+    Args:
+        profile:  ``"aggressive"`` | ``"conservative"`` | ``"neutral"``
+        state:    Pipeline state (needs ``persona_signals``, ``research_manager_signal``,
+                  ``fundamentals``, ``technical_indicators``).
+
+    Returns:
+        (view_text, signal, confidence, key_points)
+    """
+    rm_sig     = state.get("research_manager_signal", {})
+    rm_signal  = rm_sig.get("signal", "neutral")
+    rm_conf    = rm_sig.get("confidence", 50)
+
+    # Persona vote breakdown (only count completed analyses)
+    all_sigs  = state.get("persona_signals", [])
+    valid     = [s for s in all_sigs if s.get("confidence", 0) > 0]
+    bullish   = [s for s in valid if s["signal"] == "bullish"]
+    bearish   = [s for s in valid if s["signal"] == "bearish"]
+    neutral_p = [s for s in valid if s["signal"] == "neutral"]
+    total     = len(valid)
+    bull_pct  = round(len(bullish) / total * 100) if total > 0 else 0
+    bear_pct  = round(len(bearish) / total * 100) if total > 0 else 0
+
+    # Key metrics for display
+    fund          = state.get("fundamentals", {})
+    tech          = state.get("technical_indicators", {})
+    beta          = fund.get("beta") or 1.0
+    rsi           = tech.get("rsi_14")
+    pe            = fund.get("pe_ratio")
+    effective_sig = rm_signal   # RM verdict is the anchor
+
+    # ── Profile rules ────────────────────────────────────────────────────────
+    if profile == "aggressive":
+        icon   = "⚡"
+        label  = "Aggressive Risk View"
+        if effective_sig == "bullish":
+            action, pos_size, stop = "ENTER LONG", "8–12%", "12–15%"
+            signal_out, conf_out = "bullish", min(rm_conf + 5, 95)
+            rationale = (
+                f"**{len(bullish)}/{total} personas bullish** ({bull_pct}%). "
+                f"RM: {rm_signal.upper()} ({rm_conf}%). "
+                "Momentum strategy — full-size entry with trailing stop."
+            )
+            kpts = [
+                f"Position size: {pos_size} of portfolio",
+                f"Stop loss: {stop} below entry",
+                "Entry: buy on strength / breakout confirmation",
+                "Target: ride momentum — review after 20% gain",
+            ]
+        elif effective_sig == "bearish":
+            action, pos_size, stop = "REDUCE / AVOID", "0–3%", "8% above entry (shorts)"
+            signal_out, conf_out = "bearish", min(rm_conf + 5, 95)
+            rationale = (
+                f"**{len(bearish)}/{total} personas bearish** ({bear_pct}%). "
+                f"RM: {rm_signal.upper()} ({rm_conf}%). "
+                "Risk-on strategy — short opportunities exist; limit long exposure."
+            )
+            kpts = [
+                f"Long: {pos_size} max (speculative only)",
+                "Short: 3–5% if risk tolerance allows",
+                f"Short stop: {stop}",
+                "Catalyst: wait for negative earnings / guidance event",
+            ]
+        else:
+            action, pos_size = "HOLD / WAIT", "4–6%"
+            signal_out, conf_out = "neutral", rm_conf
+            rationale = (
+                f"**Mixed** — {len(bullish)}B / {len(bearish)}Be / {len(neutral_p)}N "
+                f"({total} personas). RM confidence: {rm_conf}%. "
+                "Wait for directional confirmation before sizing up."
+            )
+            kpts = [
+                f"Hold existing: {pos_size} if already positioned",
+                "New entry: wait for RM conviction > 65%",
+                "Watch: volume spike + RSI above 55",
+                "Avoid: adding without clear catalyst",
+            ]
+
+    elif profile == "conservative":
+        icon   = "🛡"
+        label  = "Conservative Risk View"
+        if effective_sig == "bullish":
+            action, pos_size, stop = "CAUTIOUS BUY", "3–5%", "7–8%"
+            signal_out, conf_out = "bullish", max(rm_conf - 10, 40)
+            rationale = (
+                f"**{len(bullish)}/{total} personas bullish** ({bull_pct}%). "
+                f"RM: {rm_signal.upper()} ({rm_conf}%). "
+                "Conservative strategy — gradual accumulation, strict stop."
+            )
+            kpts = [
+                f"Position: {pos_size} — build in 2–3 tranches",
+                f"Stop loss: {stop} below cost basis (non-negotiable)",
+                "Entry: limit orders only — avoid chasing",
+                "Horizon: 12–18 months minimum for thesis to play out",
+            ]
+        elif effective_sig == "bearish":
+            action, pos_size = "AVOID / EXIT", "0–1%"
+            signal_out, conf_out = "bearish", max(rm_conf - 10, 40)
+            rationale = (
+                f"**{len(bearish)}/{total} personas bearish** ({bear_pct}%). "
+                f"RM: {rm_signal.upper()} ({rm_conf}%). "
+                "Capital preservation mode — no new longs; exit existing positions."
+            )
+            kpts = [
+                "New positions: avoid completely",
+                "Existing: consider reducing or full exit",
+                "Cash is a valid position — protect capital first",
+                "Re-evaluate when RM signal turns neutral or bullish",
+            ]
+        else:
+            action, pos_size = "HOLD MINIMAL", "2–3%"
+            signal_out, conf_out = "neutral", max(rm_conf - 10, 40)
+            rationale = (
+                f"**Mixed** — {len(bullish)}B / {len(bearish)}Be / {len(neutral_p)}N "
+                f"({total} personas). RM confidence: {rm_conf}%. "
+                "Minimal exposure until conviction improves."
+            )
+            kpts = [
+                f"Position: {pos_size} max until clearer signal",
+                "Prefer defensive equivalent over this name",
+                "Strict 5% stop loss on any position taken",
+                "Re-evaluate on next earnings or macro update",
+            ]
+
+    else:   # neutral / balanced
+        icon   = "⚖"
+        label  = "Neutral Risk View"
+        if effective_sig == "bullish":
+            action, pos_size, stop = "BUY / ACCUMULATE", "5–7%", "10%"
+            signal_out, conf_out = "bullish", rm_conf
+            rationale = (
+                f"**{len(bullish)}/{total} personas bullish** ({bull_pct}%). "
+                f"RM: {rm_signal.upper()} ({rm_conf}%). "
+                "Balanced strategy — standard position with symmetric risk/reward."
+            )
+            kpts = [
+                f"Position: {pos_size} of portfolio",
+                f"Stop loss: {stop} below entry — automatic",
+                "Trim to 5% on 20% gain to lock in profit",
+                "Review thesis at next earnings",
+            ]
+        elif effective_sig == "bearish":
+            action, pos_size = "UNDERWEIGHT", "0–3%"
+            signal_out, conf_out = "bearish", rm_conf
+            rationale = (
+                f"**{len(bearish)}/{total} personas bearish** ({bear_pct}%). "
+                f"RM: {rm_signal.upper()} ({rm_conf}%). "
+                "Underweight vs benchmark — avoid fresh entry."
+            )
+            kpts = [
+                f"Position: {pos_size} max (underweight)",
+                "Existing holders: trim to benchmark weight",
+                "Risk/reward unfavorable at current levels",
+                "Catalyst needed for re-rating",
+            ]
+        else:
+            action, pos_size = "HOLD / MARKET WEIGHT", "4–5%"
+            signal_out, conf_out = "neutral", rm_conf
+            rationale = (
+                f"**Mixed** — {len(bullish)}B / {len(bearish)}Be / {len(neutral_p)}N "
+                f"({total} personas). RM confidence: {rm_conf}%. "
+                "Market-weight position — no strong edge detected."
+            )
+            kpts = [
+                f"Position: {pos_size} market-weight",
+                "No alpha edge — consider reallocating to higher-conviction ideas",
+                "Monitor for earnings surprise or macro shift",
+                "Re-evaluate in 30 days",
+            ]
+
+    # ── Build view text ──────────────────────────────────────────────────────
+    lines: list[str] = [
+        f"### {label} {icon}",
+        f"**Action: {action}** | Position: {pos_size}",
+        "",
+        rationale,
+        "",
+        "**Key Metrics:**",
+        f"- Beta: {float(beta):.2f}",
+    ]
+    if rsi is not None:
+        vol_label = "oversold" if rsi < 30 else "overbought" if rsi > 70 else "neutral"
+        lines.append(f"- RSI(14): {rsi:.1f} ({vol_label})")
+    if pe is not None:
+        lines.append(f"- P/E: {float(pe):.1f}×")
+    lines.append("")
+    lines.append("*(Rule-based view — LLM unavailable due to rate limits)*")
+
+    return "\n".join(lines), signal_out, int(conf_out), kpts
+
+
+def _extract_filing_section(text: str, section_id: str, max_chars: int) -> str:
+    """Locate a specific 10-K Item section within raw filing text and return
+    up to max_chars starting from its header.
+
+    Searches for 'ITEM <section_id>' with common separators (., :, —, space).
+    The negative lookahead (?![A-Za-z0-9]) prevents 'ITEM 1' matching 'ITEM 1A'.
+    Falls back to text[:max_chars] if the header is not found in this filing.
+
+    Examples:
+        _extract_filing_section(text, "1",  5000)  → Item 1 Business
+        _extract_filing_section(text, "1A", 6000)  → Item 1A Risk Factors
+        _extract_filing_section(text, "7",  5000)  → Item 7 MD&A
+    """
+    import re
+    pattern = re.compile(
+        rf'(?:^|\n)\s*ITEM\s+{re.escape(section_id)}(?![A-Za-z0-9])[\.\s:\-]?',
+        re.IGNORECASE,
+    )
+    m = pattern.search(text)
+    if m:
+        return text[m.start(): m.start() + max_chars]
+    # Section header not found — fall back to the beginning of the filing
+    return text[:max_chars]
+
+
 def _parse_signal_from_text(text: str) -> tuple[str, int]:
     """Extract signal and confidence from a freeform LLM response.
 
@@ -867,75 +1162,123 @@ async def _node_persona(
             }
 
             # ── Per-persona 10-K text routing ─────────────────────────────────
-            # Each entry: (chars_to_pass, focus_label_for_prompt)
-            # chars_to_pass is a slice of the 80 000-char fetch so no LLM
-            # receives the full document — only the section relevant to its
-            # investment philosophy.
+            # Each entry: (section_id, max_chars, focus_label)
             #
-            # Item 1  (Business)      ≈ chars   0 – 40 000
-            # Item 1A (Risk Factors)  ≈ chars 20 000 – 60 000  (varies by filer)
-            # Item 7  (MD&A)          ≈ chars 60 000+  (usually beyond our fetch)
-            _FILING_TEXT_CFG: dict[str, tuple[int, str]] = {
-                # ── Business-description focused ──────────────────────────────
+            # section_id drives _extract_filing_section() which finds the actual
+            # Item header inside the 80 000-char raw fetch rather than blindly
+            # slicing from char 0.  This means Burry actually reads Item 1A Risk
+            # Factors (which may start at char 35 000+) instead of boilerplate
+            # cover pages, and Fisher reads the true Item 1 Business section.
+            #
+            # Token budget rationale (≈ 4 chars per token):
+            #   5 000 chars ≈ 1 250 tokens  — lean, targeted
+            #   8 000 chars ≈ 2 000 tokens  — for deep risk readers (Burry)
+            # vs old approach: 15 000–30 000 chars = 3 750–7 500 tokens each
+            #
+            # Total reduction: ~80 % fewer filing tokens across all personas,
+            # while each persona reads exactly the section it cares about.
+            _FILING_TEXT_CFG: dict[str, tuple[str, int, str]] = {
+                # ── Item 1 — Business description ─────────────────────────────
                 "fisher": (
-                    30000,
+                    "1", 5000,
                     "Item 1 — Business description. Evaluate against Fisher's "
                     "15-point Scuttlebutt checklist: products with growth potential, "
                     "R&D effectiveness, sales-force quality, customer relationships, "
                     "management integrity, long-term profit orientation.",
                 ),
                 "lynch": (
-                    25000,
+                    "1", 5000,
                     "Item 1 — Business description. Use this to classify the stock "
                     "into Lynch's 6 categories (slow grower / stalwart / fast grower / "
                     "cyclical / turnaround / asset play) and assess whether the "
                     "expansion story is replicable.",
                 ),
                 "pabrai": (
-                    20000,
+                    "1", 4000,
                     "Item 1 — Business description. Assess simplicity of the business "
                     "model, sources of competitive moat, and whether it passes the "
                     "Dhandho 'can a 10-year-old understand it' test.",
                 ),
                 "ackman": (
-                    20000,
+                    "1", 5000,
                     "Item 1 — Business description. Assess predictability, barriers "
                     "to entry, and any activist catalyst potential visible in the "
                     "business structure and operating model.",
                 ),
-                # ── Business + risk balance ───────────────────────────────────
                 "buffett": (
-                    20000,
-                    "Item 1 + early Risk Factors. Focus on business quality, "
+                    "1", 5000,
+                    "Item 1 — Business description. Focus on business quality, "
                     "competitive moat durability, and management's capital allocation "
                     "language.",
                 ),
                 "munger": (
-                    15000,
-                    "Item 1 + MD&A language. Focus on management tone, capital "
-                    "allocation decisions, and quality of the business model.",
+                    "1", 4000,
+                    "Item 1 — Business description. Focus on management tone, capital "
+                    "allocation decisions, and quality of the business model through "
+                    "a multidisciplinary lens.",
                 ),
-                # ── Risk-factors focused ──────────────────────────────────────
+                "cathie_wood": (
+                    "1", 5000,
+                    "Item 1 — Business description. Identify disruptive innovation "
+                    "potential, exponential growth drivers, platform network effects, "
+                    "and whether the company is riding a multi-year S-curve.",
+                ),
+                "jhunjhunwala": (
+                    "1", 4000,
+                    "Item 1 — Business description. Assess scalability of the business "
+                    "model, management quality, and whether this is a long-duration "
+                    "compounding opportunity.",
+                ),
+                # ── Item 1A — Risk Factors ────────────────────────────────────
                 "graham": (
-                    25000,
+                    "1A", 6000,
                     "Item 1A — Risk Factors. Focus on earnings reliability warnings, "
                     "balance sheet quality issues, contingent liabilities, and any "
                     "hidden financial risks that threaten margin of safety.",
                 ),
                 "burry": (
-                    30000,
+                    "1A", 8000,
                     "Item 1A — Risk Factors. Read every line. Surface off-balance-sheet "
                     "items, contingent liabilities, unusual accounting, customer "
                     "concentration, supply-chain dependencies, and anything that could "
                     "destroy the thesis.",
                 ),
+                "taleb": (
+                    "1A", 6000,
+                    "Item 1A — Risk Factors. Hunt for fat-tail risks, fragility "
+                    "indicators, hidden leverage, and any disclosure that suggests "
+                    "the company is exposed to low-probability catastrophic outcomes.",
+                ),
+                # ── Item 7 — MD&A (forward-looking / macro) ──────────────────
+                "damodaran": (
+                    "7", 5000,
+                    "Item 7 — MD&A. Extract management's discussion of revenue "
+                    "drivers, margin trajectory, capital allocation, and any "
+                    "forward-looking guidance useful for DCF inputs.",
+                ),
+                "druckenmiller": (
+                    "7", 5000,
+                    "Item 7 — MD&A. Focus on macro-sensitive revenue streams, "
+                    "cyclicality, management's tone on the economic environment, "
+                    "and any catalysts that could drive earnings inflection.",
+                ),
+                "growth_agent": (
+                    "7", 4000,
+                    "Item 7 — MD&A. Extract revenue growth discussion, margin "
+                    "expansion drivers, reinvestment rates, and management's "
+                    "outlook for the next 12–24 months.",
+                ),
+                # ── No filing text needed ─────────────────────────────────────
+                # news_sentiment works entirely from live news headlines and
+                # sentiment signals — 10-K language is stale and irrelevant.
+                "news_sentiment": None,
             }
 
             raw_filing = state.get("filing_text_excerpt", "")
             _cfg = _FILING_TEXT_CFG.get(persona_id)
             if _cfg and raw_filing:
-                filing_chars, filing_label = _cfg
-                filing_text  = raw_filing[:filing_chars]
+                section_id, filing_chars, filing_label = _cfg
+                filing_text = _extract_filing_section(raw_filing, section_id, filing_chars)
             else:
                 filing_text  = ""
                 filing_label = ""
@@ -1070,11 +1413,25 @@ async def _node_debate_bull(
     try:
         bull_case = await asyncio.to_thread(llm_router.invoke, messages, task_type="quick")
     except AllProvidersExhaustedError:
-        bull_case = (
-            "⚠ All free LLM providers are temporarily rate-limited. "
-            "Add your own API key (Groq, Gemini, or OpenRouter) in the sidebar "
-            "to get unlimited analysis without shared rate limits."
-        )
+        # LLM unavailable — stitch bullish persona reasoning directly, no LLM needed
+        bullish_signals = [
+            s for s in state.get("persona_signals", [])
+            if s["signal"] == "bullish" and s.get("confidence", 0) > 0
+        ]
+        if bullish_signals:
+            lines = "\n\n".join(
+                f"**{s['agent'].title()}** ({s['confidence']}% confidence):\n{s['reasoning'][:400]}"
+                for s in bullish_signals
+            )
+            bull_case = (
+                f"**Bull Case — compiled from {len(bullish_signals)} bullish persona signal(s)**\n"
+                f"*(LLM synthesis unavailable — showing persona reasoning directly)*\n\n{lines}"
+            )
+        else:
+            bull_case = (
+                "No bullish signals from completed personas. "
+                "Consider this a cautionary signal or add your own API key for full analysis."
+            )
     except Exception as exc:
         logger.warning("Debate bull LLM error: %s", exc)
         bull_case = f"Bull case analysis failed: {str(exc)[:200]}"
@@ -1130,11 +1487,25 @@ async def _node_debate_bear(
     try:
         bear_case = await asyncio.to_thread(llm_router.invoke, messages, task_type="quick")
     except AllProvidersExhaustedError:
-        bear_case = (
-            "⚠ All free LLM providers are temporarily rate-limited. "
-            "Add your own API key (Groq, Gemini, or OpenRouter) in the sidebar "
-            "to get unlimited analysis without shared rate limits."
-        )
+        # LLM unavailable — stitch bearish persona reasoning directly, no LLM needed
+        bearish_signals = [
+            s for s in state.get("persona_signals", [])
+            if s["signal"] == "bearish" and s.get("confidence", 0) > 0
+        ]
+        if bearish_signals:
+            lines = "\n\n".join(
+                f"**{s['agent'].title()}** ({s['confidence']}% confidence):\n{s['reasoning'][:400]}"
+                for s in bearish_signals
+            )
+            bear_case = (
+                f"**Bear Case — compiled from {len(bearish_signals)} bearish persona signal(s)**\n"
+                f"*(LLM synthesis unavailable — showing persona reasoning directly)*\n\n{lines}"
+            )
+        else:
+            bear_case = (
+                "No bearish signals from completed personas. "
+                "All analyzed personas lean bullish or neutral."
+            )
     except Exception as exc:
         logger.warning("Debate bear LLM error: %s", exc)
         bear_case = f"Bear case analysis failed: {str(exc)[:200]}"
@@ -1212,15 +1583,14 @@ async def _node_research_manager(
             confidence_out = result.confidence or confidence_out
         except Exception as exc:
             logger.warning("ResearchManager agent failed: %s", exc)
-            # Fall back to a compact inline synthesis using the QUICK chain
-            # (deep chain may already be exhausted by the time RM runs)
+            # Tier-1 fallback: compact inline LLM synthesis (lighter prompt)
             signals_summary = "\n".join(
                 f"- {s['agent'].title()}: {s['signal'].upper()} ({s['confidence']}%)"
                 for s in state.get("persona_signals", [])
             )
             bull = "\n".join(state.get("bull_arguments", []))
             bear = "\n".join(state.get("bear_arguments", []))
-            messages = [
+            fallback_messages = [
                 {"role": "system", "content": (
                     "You are the Head of Research. Given analyst signals and a bull/bear debate, "
                     "write a concise 2-paragraph synthesis: "
@@ -1232,11 +1602,14 @@ async def _node_research_manager(
                     f"Bull:\n{bull[:400]}\n\nBear:\n{bear[:400]}"
                 )},
             ]
-            synthesis = await _async_llm_invoke(
-                llm_router, messages,
-                task_type="deep",   # Research Manager always uses the best reasoning model
-                fallback="Synthesis unavailable — rate limits hit. Core verdict derived from persona vote.",
-            )
+            try:
+                synthesis = await asyncio.to_thread(
+                    llm_router.invoke, fallback_messages, task_type="deep"
+                )
+            except (AllProvidersExhaustedError, Exception) as exc2:
+                logger.warning("RM fallback LLM also exhausted: %s", exc2)
+                # Tier-2 fallback: pure vote-based synthesis — zero LLM, always works
+                synthesis, signal_out, confidence_out = _vote_based_synthesis(state)
 
     state["research_synthesis"] = synthesis
     state["research_manager_signal"] = {
@@ -1334,25 +1707,34 @@ async def _node_risk(
     except Exception as exc:
         logger.warning("Risk agent %s failed: %s", profile, exc)
         exc_str = str(exc)
-        if "exhausted" in exc_str.lower() or "rate limit" in exc_str.lower() or "429" in exc_str:
+        is_rate_limit = (
+            "exhausted" in exc_str.lower()
+            or "rate limit" in exc_str.lower()
+            or "429" in exc_str
+        )
+        if is_rate_limit:
+            # Build a meaningful rule-based view so the user still gets
+            # position-sizing guidance even when all LLMs are rate-limited.
+            fallback, fb_signal, fb_conf, fb_kpts = _rule_based_risk_view(profile, state)
             fallback = (
-                "⚠ All free LLM providers are temporarily rate-limited. "
-                "Add your own API key (Groq, Gemini, or OpenRouter) in the sidebar "
-                "to get unlimited analysis without shared rate limits."
+                "⚠ *LLM providers temporarily rate-limited — showing rule-based view.*\n\n"
+                + fallback
             )
         else:
             fallback = f"{profile_names.get(profile, profile.title())} analysis unavailable: {exc_str[:200]}"
-        state[f"{profile}_view"] = fallback  # type: ignore[literal-required]
-        state[f"{profile}_signal"] = "neutral"  # type: ignore[literal-required]
-        state[f"{profile}_confidence"] = 50  # type: ignore[literal-required]
-        state[f"{profile}_key_points"] = []  # type: ignore[literal-required]
+            fb_signal, fb_conf, fb_kpts = "neutral", 50, []
+
+        state[f"{profile}_view"] = fallback          # type: ignore[literal-required]
+        state[f"{profile}_signal"] = fb_signal       # type: ignore[literal-required]
+        state[f"{profile}_confidence"] = fb_conf     # type: ignore[literal-required]
+        state[f"{profile}_key_points"] = fb_kpts     # type: ignore[literal-required]
         # Always emit agent_complete so the frontend gets a result event
         await on_event({
             "type": "agent_complete",
             "agent": f"risk_{profile}",
-            "signal": "neutral",
-            "confidence": 50,
-            "reasoning": fallback,
+            "signal": fb_signal,
+            "confidence": fb_conf,
+            "reasoning": fallback[:300] + ("..." if len(fallback) > 300 else ""),
         })
 
 
@@ -1418,18 +1800,35 @@ async def _node_portfolio_manager(
         },
     ]
 
-    pm_text = await _async_llm_invoke(
-        llm_router, messages, task_type="quick", fallback="{}"
-    )
-
-    # Parse PM output, fall back to quantitative verdict on parse error
     import json, re as _re
 
-    verdict = base_verdict
-    confidence = base_conf
+    verdict     = base_verdict
+    confidence  = base_conf
     target_price = None
-    summary = state.get("research_synthesis", "")[:500]
+    summary     = state.get("research_synthesis", "")[:500]
+    pm_fallback_summary: str | None = None
 
+    try:
+        pm_text = await asyncio.to_thread(llm_router.invoke, messages, task_type="quick")
+    except AllProvidersExhaustedError:
+        logger.warning("Portfolio Manager: all providers exhausted — using vote-based fallback")
+        pm_text = "{}"
+        # Build a meaningful summary from existing synthesis (which may itself be
+        # vote-based if RM also fell back) so the user sees something useful.
+        existing_synthesis = state.get("research_synthesis", "").strip()
+        if not existing_synthesis:
+            existing_synthesis, _, _ = _vote_based_synthesis(state)
+        pm_fallback_summary = (
+            f"**Portfolio Manager — Final Verdict: {base_verdict}** "
+            f"(confidence: {base_conf}%)\n\n"
+            f"*(LLM synthesis unavailable — verdict derived from persona vote counts)*\n\n"
+            + existing_synthesis[:600]
+        )
+    except Exception as exc:
+        logger.warning("Portfolio Manager LLM error: %s", exc)
+        pm_text = "{}"
+
+    # Parse PM output; fall back to quantitative verdict on parse error
     try:
         # Extract JSON from the response (may have surrounding text)
         # BUG-16 fix: non-greedy to avoid overshooting past the JSON object
@@ -1444,6 +1843,10 @@ async def _node_portfolio_manager(
             summary = pm_data.get("summary", summary)
     except Exception as exc:
         logger.warning("Could not parse PM JSON response: %s | raw: %s", exc, pm_text[:200])
+
+    # If PM LLM was unavailable, override the summary with the fallback text
+    if pm_fallback_summary:
+        summary = pm_fallback_summary
 
     # Build key metrics snapshot
     fund = state.get("fundamentals", {})
@@ -1611,7 +2014,7 @@ class TradingGraph:
                         ),
                         key_points=[],
                     )
-                await asyncio.sleep(0.5)   # brief gap so provider quotas can breathe
+                await asyncio.sleep(5.0)   # give rate-limit buckets time to partially refill between personas
                 return result
 
         persona_tasks = [_throttled_persona(pid) for pid in valid_personas]

@@ -48,14 +48,24 @@ class GroqClient:
 
     DEFAULT_MODEL = "llama-3.3-70b-versatile"
 
-    # Ordered list of free-tier deep models.
-    # invoke_deep() tries them in order — if one is rate-limited or unavailable
-    # the next is tried automatically before giving up on Groq entirely.
+    # Ordered list of verified-active free-tier models (confirmed May 2026).
+    # invoke_deep() tries them in order — rate-limited or unavailable models
+    # are skipped automatically before giving up on Groq entirely.
+    #
+    # Removed (decommissioned — return "model not found" immediately):
+    #   llama-3.1-70b-versatile, mixtral-8x7b-32768, gemma2-9b-it
+    #
+    # Free-tier limits:
+    #   llama-3.3-70b-versatile                  12K TPM  30 RPM   1K RPD
+    #   meta-llama/llama-4-scout-17b-16e-instruct 30K TPM  30 RPM   1K RPD  ← highest TPM
+    #   llama-3.1-8b-instant                      6K TPM   30 RPM  14.4K RPD ← highest RPD
+    #   qwen/qwen3-32b                             6K TPM   60 RPM   1K RPD  ← highest RPM
     DEEP_MODELS: list[str] = [
-        "llama-3.3-70b-versatile",       # 14,400 req/day — primary
-        "llama-3.1-70b-versatile",        # strong fallback
-        "mixtral-8x7b-32768",             # fast, good reasoning
-        "gemma2-9b-it",                   # lightweight last resort
+        "llama-3.3-70b-versatile",                     # best quality — primary (production)
+        "openai/gpt-oss-120b",                         # 120B production model — stable fallback
+        "meta-llama/llama-4-scout-17b-16e-instruct",   # highest TPM (30K) — preview
+        "llama-3.1-8b-instant",                        # highest RPD (14.4K) — production
+        "qwen/qwen3-32b",                              # highest RPM (60) — preview
     ]
 
     def __init__(self, api_key: str) -> None:

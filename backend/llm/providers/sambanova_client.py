@@ -22,10 +22,15 @@ class SambanovaClient:
     # Ordered list of free-tier deep models.
     # invoke_deep() tries them in order — if one is rate-limited or unavailable
     # the next is tried automatically before giving up on SambaNova entirely.
+    #
+    # Verified-active models (May 2026) — source: api.sambanova.ai/v1/models
+    # Removed (no longer available):
+    #   Meta-Llama-3.1-405B-Instruct, Meta-Llama-3.1-70B-Instruct
     DEEP_MODELS: list[str] = [
-        "Meta-Llama-3.1-405B-Instruct",   # largest free model anywhere — primary
-        "Meta-Llama-3.3-70B-Instruct",    # same as quick model — strong fallback
-        "Meta-Llama-3.1-70B-Instruct",    # older 70B — last resort
+        "DeepSeek-V3.2",                       # latest DeepSeek — strong reasoning
+        "Meta-Llama-3.3-70B-Instruct",         # verified active — strong fallback
+        "Llama-4-Maverick-17B-128E-Instruct",  # Llama 4 — new
+        "gemma-3-12b-it",                      # lightweight last resort
     ]
 
     def __init__(self, api_key: str):

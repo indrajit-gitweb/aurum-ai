@@ -123,5 +123,5 @@ Then build your case. Be Munger.
             {"role": "user", "content": prompt},
         ]
 
-        response = self.llm.invoke(messages, task_type="quick")
+        response = self.llm.invoke(messages, task_type="deep")
         return self._parse_response(response, ticker)

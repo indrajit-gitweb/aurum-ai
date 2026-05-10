@@ -17,14 +17,19 @@ logger = logging.getLogger(__name__)
 class CerebrasClient:
     """OpenAI-compatible client for Cerebras Cloud inference."""
 
-    DEFAULT_MODEL = "llama-3.3-70b"
+    DEFAULT_MODEL = "gpt-oss-120b"
 
     # Ordered list of models for deep tasks.
     # invoke_deep() tries them in order — if one is rate-limited or unavailable
     # the next is tried automatically before giving up on Cerebras entirely.
+    #
+    # Verified-active models (May 2026) — source: inference-docs.cerebras.ai
+    #   gpt-oss-120b  → 120B production model, ~3 000 tok/s
+    #   llama3.1-8b   → 8B production model,  ~2 200 tok/s
+    # Removed: llama-3.3-70b (does not exist on Cerebras — caused silent failures)
     DEEP_MODELS: list[str] = [
-        "llama-3.3-70b",    # fastest free inference — primary
-        "llama3.1-8b",      # smaller but still very fast — fallback
+        "gpt-oss-120b",   # largest production model — primary
+        "llama3.1-8b",    # smaller, very fast — fallback
     ]
 
     def __init__(self, api_key: str):

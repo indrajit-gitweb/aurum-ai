@@ -130,5 +130,5 @@ Is this a company still in its high-growth phase? Would you hold this for 10 yea
             {"role": "user", "content": prompt},
         ]
 
-        response = self.llm.invoke(messages, task_type="quick")
+        response = self.llm.invoke(messages, task_type="deep")
         return self._parse_response(response, ticker)

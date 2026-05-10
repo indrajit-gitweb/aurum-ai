@@ -133,5 +133,5 @@ Does this pass your barbell filter? What would break it in a Black Swan event?
             {"role": "user", "content": prompt},
         ]
 
-        response = self.llm.invoke(messages, task_type="quick")
+        response = self.llm.invoke(messages, task_type="deep")
         return self._parse_response(response, ticker)

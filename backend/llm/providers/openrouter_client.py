@@ -24,17 +24,21 @@ class OpenRouterClient:
         api_key: OpenRouter API key.
     """
 
-    DEFAULT_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
+    DEFAULT_MODEL = "google/gemma-4-31b-it:free"
 
     # Ordered list of free deep-task models.  invoke_deep() tries them in order,
     # skipping any that return 404 (model no longer hosted on OpenRouter).
+    #
+    # Verified-active free models (May 2026) — source: openrouter.ai/api/v1/models
+    # Removed (all returned 404 — no longer hosted):
+    #   meta-llama/llama-3.3-70b-instruct:free, qwen/qwen3-14b:free,
+    #   google/gemma-3-27b-it:free, deepseek/deepseek-r1-0528:free,
+    #   mistralai/mistral-7b-instruct:free, meta-llama/llama-3.1-8b-instruct:free
     DEEP_MODELS: list[str] = [
-        "meta-llama/llama-3.3-70b-instruct:free",
-        "qwen/qwen3-14b:free",
-        "google/gemma-3-27b-it:free",
-        "deepseek/deepseek-r1-0528:free",
-        "mistralai/mistral-7b-instruct:free",
-        "meta-llama/llama-3.1-8b-instruct:free",  # last resort: same as quick
+        "nvidia/nemotron-3-super-120b-a12b:free",             # 120B — strongest
+        "google/gemma-4-31b-it:free",                         # Gemma 4 31B
+        "google/gemma-4-26b-a4b-it:free",                     # Gemma 4 26B variant
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", # reasoning focused
     ]
 
     def __init__(self, api_key: str) -> None:
