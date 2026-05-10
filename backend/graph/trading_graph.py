@@ -1044,6 +1044,8 @@ async def _node_debate_bull(
     bull_reasoning = "\n\n".join(
         f"**{s['agent'].title()}**: {s['reasoning'][:500]}" for s in bull_personas
     )
+    if not bull_reasoning:
+        bull_reasoning = "No explicit bullish signals from personas — construct the best possible bull case from available fundamentals and technicals."
 
     messages = [
         {
@@ -1065,7 +1067,18 @@ async def _node_debate_bull(
         },
     ]
 
-    bull_case = await _async_llm_invoke(llm_router, messages, task_type="quick")
+    try:
+        bull_case = await asyncio.to_thread(llm_router.invoke, messages, task_type="quick")
+    except AllProvidersExhaustedError:
+        bull_case = (
+            "⚠ All free LLM providers are temporarily rate-limited. "
+            "Add your own API key (Groq, Gemini, or OpenRouter) in the sidebar "
+            "to get unlimited analysis without shared rate limits."
+        )
+    except Exception as exc:
+        logger.warning("Debate bull LLM error: %s", exc)
+        bull_case = f"Bull case analysis failed: {str(exc)[:200]}"
+
     state["bull_arguments"] = [bull_case]
 
     await on_event({"type": "debate_message", "side": "bull", "message": bull_case})
@@ -1114,7 +1127,18 @@ async def _node_debate_bear(
         },
     ]
 
-    bear_case = await _async_llm_invoke(llm_router, messages, task_type="quick")
+    try:
+        bear_case = await asyncio.to_thread(llm_router.invoke, messages, task_type="quick")
+    except AllProvidersExhaustedError:
+        bear_case = (
+            "⚠ All free LLM providers are temporarily rate-limited. "
+            "Add your own API key (Groq, Gemini, or OpenRouter) in the sidebar "
+            "to get unlimited analysis without shared rate limits."
+        )
+    except Exception as exc:
+        logger.warning("Debate bear LLM error: %s", exc)
+        bear_case = f"Bear case analysis failed: {str(exc)[:200]}"
+
     state["bear_arguments"] = [bear_case]
 
     await on_event({"type": "debate_message", "side": "bear", "message": bear_case})
@@ -1309,11 +1333,27 @@ async def _node_risk(
 
     except Exception as exc:
         logger.warning("Risk agent %s failed: %s", profile, exc)
-        fallback = f"{profile_names.get(profile, profile.title())} analysis unavailable: {str(exc)[:200]}"
+        exc_str = str(exc)
+        if "exhausted" in exc_str.lower() or "rate limit" in exc_str.lower() or "429" in exc_str:
+            fallback = (
+                "⚠ All free LLM providers are temporarily rate-limited. "
+                "Add your own API key (Groq, Gemini, or OpenRouter) in the sidebar "
+                "to get unlimited analysis without shared rate limits."
+            )
+        else:
+            fallback = f"{profile_names.get(profile, profile.title())} analysis unavailable: {exc_str[:200]}"
         state[f"{profile}_view"] = fallback  # type: ignore[literal-required]
         state[f"{profile}_signal"] = "neutral"  # type: ignore[literal-required]
         state[f"{profile}_confidence"] = 50  # type: ignore[literal-required]
         state[f"{profile}_key_points"] = []  # type: ignore[literal-required]
+        # Always emit agent_complete so the frontend gets a result event
+        await on_event({
+            "type": "agent_complete",
+            "agent": f"risk_{profile}",
+            "signal": "neutral",
+            "confidence": 50,
+            "reasoning": fallback,
+        })
 
 
 async def _node_portfolio_manager(

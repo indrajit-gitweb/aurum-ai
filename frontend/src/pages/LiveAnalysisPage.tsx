@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useBlocker } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CheckCircle, Loader, TrendingUp, TrendingDown, Minus, Download, RefreshCw, AlertCircle, ChevronsDown, Square, ChevronDown, Database, ExternalLink } from 'lucide-react'
 import { useWebSocket } from '@/hooks/useWebSocket'
@@ -404,17 +404,17 @@ function cleanReasoning(raw: string): string {
   return text
 }
 
-// ─── Markdown renderer — handles **bold**, - bullets, **Section** headings ──────
+// ─── Markdown renderer — handles **bold**, ## headings, - bullets ─────────────
 function renderMarkdown(text: string): React.ReactNode[] {
   if (!text) return []
-  // Also split on literal \n sequences that escaped JSON normalisation
+  // Split on real newlines AND literal \n escape sequences
   return text.split(/\n|\\n/).map((line, i) => {
-    // Strip residual literal escape sequences and trim
+    // Strip residual escape sequences and trim
     const t = line.replace(/\\n/g, '').replace(/\\t/g, ' ').trim()
     if (!t) return <div key={i} style={{ height: '6px' }} />
 
-    // **Round X — Title** or **Section Title** as its own line → heading
-    // Strip trailing \n or ** artifacts before matching
+    // ── **SECTION TITLE** alone on its own line → gold heading ──────────────
+    // Normalise trailing artifact: "**\n" or "**\n" before testing
     const tClean = t.replace(/\*\*\\?n?\s*$/, '**').replace(/\\n\s*$/, '')
     if (/^\*\*[^*]+\*\*$/.test(tClean) || /^\*\*Round\s/i.test(tClean) || /^\*\*[A-Z]/.test(tClean)) {
       const clean = tClean.replace(/^\*\*|\*\*$/g, '')
@@ -427,14 +427,14 @@ function renderMarkdown(text: string): React.ReactNode[] {
       )
     }
 
-    // Bullet with bold heading: - **Key**: rest
+    // ── Bullet with bold label: - **Key**: rest ──────────────────────────────
     if (/^[-•]\s+\*\*/.test(t)) {
       const rest = t.replace(/^[-•]\s+/, '')
       const m = rest.match(/^\*\*([^*]+)\*\*:?\s*(.*)/)
       if (m) {
         return (
           <div key={i} className="flex gap-2 py-0.5">
-            <span style={{ color: 'rgba(201,168,76,0.6)', flexShrink: 0, marginTop: '1px' }}>▸</span>
+            <span style={{ color: '#C9A84C', flexShrink: 0, marginTop: '1px' }}>▸</span>
             <p className="font-raleway text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.65)' }}>
               <span style={{ color: 'rgba(255,255,255,0.92)', fontWeight: 600 }}>{m[1]}</span>
               {m[2] ? <span style={{ color: 'rgba(255,255,255,0.5)' }}>: </span> : null}
@@ -445,18 +445,18 @@ function renderMarkdown(text: string): React.ReactNode[] {
       }
     }
 
-    // Regular bullet
+    // ── Plain bullet ─────────────────────────────────────────────────────────
     if (/^[-•]\s+/.test(t)) {
       const rest = t.replace(/^[-•]\s+/, '')
       return (
         <div key={i} className="flex gap-2 py-0.5">
-          <span style={{ color: 'rgba(201,168,76,0.6)', flexShrink: 0, marginTop: '1px' }}>▸</span>
+          <span style={{ color: '#C9A84C', flexShrink: 0, marginTop: '1px' }}>▸</span>
           <p className="font-raleway text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.65)' }}>{rest}</p>
         </div>
       )
     }
 
-    // Plain paragraph
+    // ── Plain paragraph ───────────────────────────────────────────────────────
     return (
       <p key={i} className="font-raleway text-xs leading-relaxed py-0.5" style={{ color: 'rgba(255,255,255,0.6)' }}>
         {t}
@@ -1577,6 +1577,24 @@ ${finalResult.target_price ? `<p class="conf">Target Price: <strong style="color
     setTimeout(() => { win.print() }, 400)
   }, [finalResult, ticker])
 
+  // ── Navigation guard — block in-app routing while analysis is live ────────────
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      isConnected && !isComplete && currentLocation.pathname !== nextLocation.pathname
+  )
+
+  // ── Browser tab close / refresh guard ─────────────────────────────────────────
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isConnected && !isComplete) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [isConnected, isComplete])
+
   return (
     <div className="min-h-screen pt-20 pb-16" style={{ background: '#0a0a0a' }}>
       <div className="max-w-7xl mx-auto px-6">
@@ -1703,6 +1721,92 @@ ${finalResult.target_price ? `<p class="conf">Target Price: <strong style="color
           </div>
         )}
       </div>
+
+      {/* ── Navigation guard modal ───────────────────────────────────────────── */}
+      <AnimatePresence>
+        {blocker.state === 'blocked' && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-50 flex items-center justify-center"
+            style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)' }}
+          >
+            <motion.div
+              initial={{ scale: 0.92, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.92, opacity: 0 }}
+              transition={{ duration: 0.25, ease: [0.25, 0.46, 0.45, 0.94] }}
+              className="relative max-w-md w-full mx-4 p-8"
+              style={{
+                background: 'linear-gradient(135deg, #111111 0%, #0d0d0d 100%)',
+                border: '1px solid rgba(201,168,76,0.3)',
+                boxShadow: '0 0 60px rgba(201,168,76,0.08)',
+              }}
+            >
+              {/* Icon */}
+              <div className="flex justify-center mb-5">
+                <div
+                  className="w-14 h-14 flex items-center justify-center"
+                  style={{ background: 'rgba(201,168,76,0.1)', border: '1px solid rgba(201,168,76,0.25)' }}
+                >
+                  <AlertCircle size={26} style={{ color: '#C9A84C' }} />
+                </div>
+              </div>
+
+              {/* Title */}
+              <p
+                className="font-cinzel font-bold text-center tracking-wider mb-2"
+                style={{ color: '#C9A84C', fontSize: '1.05rem' }}
+              >
+                Analysis In Progress
+              </p>
+
+              {/* Body */}
+              <p
+                className="font-raleway text-sm text-center leading-relaxed mb-7"
+                style={{ color: 'rgba(255,255,255,0.55)' }}
+              >
+                Leaving this page will cancel the running analysis and all progress will be lost.
+              </p>
+
+              {/* Divider */}
+              <div style={{ borderTop: '1px solid rgba(201,168,76,0.1)', marginBottom: '24px' }} />
+
+              {/* Buttons */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => blocker.reset?.()}
+                  className="flex-1 font-cinzel text-xs font-bold tracking-widest uppercase py-3 transition-all duration-200"
+                  style={{
+                    background: 'rgba(201,168,76,0.12)',
+                    border: '1px solid rgba(201,168,76,0.4)',
+                    color: '#C9A84C',
+                  }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(201,168,76,0.22)' }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(201,168,76,0.12)' }}
+                >
+                  Stay
+                </button>
+                <button
+                  onClick={() => blocker.proceed?.()}
+                  className="flex-1 font-cinzel text-xs font-bold tracking-widest uppercase py-3 transition-all duration-200"
+                  style={{
+                    background: 'rgba(239,68,68,0.08)',
+                    border: '1px solid rgba(239,68,68,0.3)',
+                    color: 'rgba(239,68,68,0.8)',
+                  }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(239,68,68,0.18)' }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(239,68,68,0.08)' }}
+                >
+                  Leave Anyway
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

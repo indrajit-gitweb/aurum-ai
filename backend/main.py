@@ -308,25 +308,61 @@ async def analyze_websocket(websocket: WebSocket, session_id: str) -> None:
                 pass  # client may have disconnected
 
         graph = TradingGraph()
-        # 10-minute hard timeout — generous backstop for large persona selections
-        # (e.g. 8–12 personas).  Individual personas have their own 90-second
-        # graceful timeout inside the graph, so the global wall is rarely hit.
-        result = await asyncio.wait_for(
-            graph.run(
+
+        # ── Cancellable analysis: race the pipeline against a disconnect watcher ──
+        # If the client navigates away mid-analysis the disconnect watcher wins and
+        # the (potentially expensive) pipeline coroutine is cancelled immediately.
+        async def _run_analysis() -> object:
+            return await graph.run(
                 ticker=request.ticker,
                 date_range={"start": request.start_date, "end": request.end_date},
                 personas=request.personas,
                 llm_router=llm_router,
                 on_event=on_event,
                 analysis_mode=request.analysis_mode,
-            ),
+            )
+
+        async def _monitor_disconnect() -> None:
+            """Return as soon as the WebSocket disconnects (any reason)."""
+            try:
+                while True:
+                    msg = await websocket.receive()
+                    if msg.get("type") == "websocket.disconnect":
+                        return
+            except (WebSocketDisconnect, Exception):
+                return
+
+        analysis_task   = asyncio.create_task(_run_analysis())
+        disconnect_task = asyncio.create_task(_monitor_disconnect())
+
+        # 10-minute hard wall; individual personas have their own 90-second fallback
+        done, pending = await asyncio.wait(
+            {analysis_task, disconnect_task},
             timeout=600.0,
+            return_when=asyncio.FIRST_COMPLETED,
         )
 
-        # Emit the final result — use result.dict() which handles all serialisation
-        final_payload = result.dict()
-        final_payload["type"] = "final_result"
-        await websocket.send_json(final_payload)
+        # Cancel whatever didn't finish first
+        for task in pending:
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+        if analysis_task in done and not analysis_task.cancelled():
+            # Happy path: analysis finished before disconnect
+            result = analysis_task.result()
+            final_payload = result.dict()
+            final_payload["type"] = "final_result"
+            await websocket.send_json(final_payload)
+        elif disconnect_task in done:
+            # Client navigated away — pipeline was cancelled, nothing to send
+            logger.info("Client disconnected mid-analysis, pipeline cancelled: session=%s", session_id)
+            return
+        else:
+            # Neither finished → timeout elapsed
+            raise asyncio.TimeoutError()
 
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected: session=%s", session_id)
